@@ -7,6 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "Supplier Validation API"
     app_version: str = "0.1.0"
+    database_url: str = Field(
+        default="sqlite:///./supplier_validation.db",
+        alias="DATABASE_URL",
+    )
     known_cnpjs: list[str] = Field(default_factory=list, alias="KNOWN_CNPJS")
 
     model_config = SettingsConfigDict(
