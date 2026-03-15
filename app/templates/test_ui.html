@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Teste Local de Fallback WhatsApp</title>
+    <link rel="stylesheet" href="/static/test_ui.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Ambiente local</p>
+          <h1>Teste do fluxo de fallback via WhatsApp</h1>
+          <p class="subtitle">
+            Use esta tela para simular a validacao de contato, disparar o fallback
+            via Meta Cloud API, acompanhar os webhooks recebidos e iniciar uma
+            ligacao real com Twilio + OpenAI Realtime.
+          </p>
+        </div>
+      </header>
+
+      <section class="panel form-panel">
+        <div class="panel-header">
+          <h2>Simular validacao</h2>
+          <p>Preencha os dados do cliente e escolha o cenario da ligacao.</p>
+        </div>
+
+        <form id="validation-form" class="form-grid">
+          <label>
+            <span>Nome da empresa</span>
+            <input
+              id="client_name"
+              name="client_name"
+              type="text"
+              value="Empresa Exemplo LTDA"
+              required
+            />
+          </label>
+
+          <label>
+            <span>CNPJ</span>
+            <input
+              id="cnpj"
+              name="cnpj"
+              type="text"
+              value="11.222.333/0001-81"
+              required
+            />
+          </label>
+
+          <label>
+            <span>Telefone</span>
+            <input
+              id="phone"
+              name="phone"
+              type="text"
+              value="11987654321"
+              required
+            />
+          </label>
+
+          <label>
+            <span>Cenario da ligacao</span>
+            <select id="call_scenario" name="call_scenario">
+              <option value="confirmed">confirmed</option>
+              <option value="failed" selected>failed</option>
+              <option value="inconclusive">inconclusive</option>
+              <option value="not_answered">not_answered</option>
+            </select>
+          </label>
+
+          <label class="full-width">
+            <span>Mensagem de fallback</span>
+            <textarea
+              id="fallback_message"
+              name="fallback_message"
+              rows="4"
+              required
+            >Ola, estamos validando o cadastro da empresa informada. Este numero pertence a empresa? Responda SIM ou NAO.</textarea>
+          </label>
+
+          <div class="actions full-width">
+            <button type="submit" class="primary">Simular validacao</button>
+            <button type="button" id="start-real-call" class="primary">
+              Iniciar ligacao real
+            </button>
+            <button type="button" id="start-diagnostic-call" class="secondary">
+              Teste diagnostico Twilio
+            </button>
+            <button type="button" id="send-whatsapp" class="secondary">
+              Enviar WhatsApp direto
+            </button>
+            <button type="button" id="clear-logs" class="ghost">
+              Limpar logs
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="metrics">
+        <article class="metric-card">
+          <span class="metric-label">Simulacoes recentes</span>
+          <strong id="requests-count">0</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Envios WhatsApp</span>
+          <strong id="sends-count">0</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Logs locais</span>
+          <strong id="logs-count">0</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Ultimo webhook</span>
+          <strong id="webhook-status">Nenhum</strong>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Payload enviado</h2>
+          </div>
+          <pre id="payload-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Resposta da API</h2>
+          </div>
+          <pre id="response-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Lote real em andamento</h2>
+          </div>
+          <pre id="live-batch-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Transcricao da ligacao</h2>
+            <p>Somente o que a API captou do cliente e do agente.</p>
+          </div>
+          <pre id="transcript-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Historico local</h2>
+          </div>
+          <pre id="requests-preview" class="json-block">[]</pre>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Logs do fluxo</h2>
+          </div>
+          <pre id="logs-preview" class="json-block">[]</pre>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Envios para WhatsApp</h2>
+          </div>
+          <pre id="sends-preview" class="json-block">[]</pre>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Ultimo webhook recebido</h2>
+          </div>
+          <pre id="webhook-preview" class="json-block">{}</pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="/static/test_ui.js" defer></script>
+  </body>
+</html>

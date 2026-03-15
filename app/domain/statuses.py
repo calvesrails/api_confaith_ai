@@ -1,6 +1,12 @@
 from enum import Enum
 
 
+class BatchStatus(str, Enum):
+    RECEIVED = "received"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+
+
 class TechnicalStatus(str, Enum):
     RECEIVED = "received"
     PAYLOAD_INVALID = "payload_invalid"
@@ -14,6 +20,7 @@ class BusinessStatus(str, Enum):
     CNPJ_NOT_FOUND = "cnpj_not_found"
     INVALID_PHONE = "invalid_phone"
     READY_FOR_CALL = "ready_for_call"
+    READY_FOR_RETRY_CALL = "ready_for_retry_call"
     CALL_NOT_ANSWERED = "call_not_answered"
     CALL_ANSWERED = "call_answered"
     CONFIRMED_BY_CALL = "confirmed_by_call"
@@ -41,6 +48,12 @@ class CallResult(str, Enum):
     CONFIRMED = "confirmed"
     REJECTED = "rejected"
     INCONCLUSIVE = "inconclusive"
+    NOT_ANSWERED = "not_answered"
+
+
+class CallPhoneSource(str, Enum):
+    PAYLOAD_PHONE = "payload_phone"
+    OFFICIAL_COMPANY_REGISTRY = "official_company_registry"
 
 
 class WhatsAppStatus(str, Enum):

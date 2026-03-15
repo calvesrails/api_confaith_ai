@@ -5,7 +5,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..core.config import get_settings
 from .base import Base
-from .models import ValidationBatchModel, ValidationRecordModel
+from .models import (
+    CallAttemptModel,
+    ValidationBatchModel,
+    ValidationRecordModel,
+    WhatsAppMessageModel,
+)
 
 _settings = get_settings()
 _connect_args = {"check_same_thread": False} if _settings.database_url.startswith(

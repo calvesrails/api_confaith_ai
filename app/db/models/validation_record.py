@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    JSON,
     Boolean,
     DateTime,
     Enum as SqlEnum,
@@ -24,6 +24,11 @@ from ...domain.statuses import (
     WhatsAppStatus,
 )
 from ..base import Base
+
+if TYPE_CHECKING:
+    from .call_attempt import CallAttemptModel
+    from .validation_batch import ValidationBatchModel
+    from .whatsapp_message import WhatsAppMessageModel
 
 
 def _utc_now() -> datetime:
@@ -46,7 +51,7 @@ class ValidationRecordModel(Base):
         index=True,
     )
     external_id: Mapped[str] = mapped_column(String(120))
-    supplier_name: Mapped[str] = mapped_column(String(255))
+    client_name: Mapped[str] = mapped_column("supplier_name", String(255))
     cnpj_original: Mapped[str] = mapped_column(String(32))
     cnpj_normalized: Mapped[str | None] = mapped_column(String(14), nullable=True)
     phone_original: Mapped[str] = mapped_column(String(32))
@@ -78,8 +83,6 @@ class ValidationRecordModel(Base):
         SqlEnum(FinalStatus, native_enum=False)
     )
     observation: Mapped[str | None] = mapped_column(Text, nullable=True)
-    call_attempts: Mapped[list] = mapped_column(JSON, default=list)
-    whatsapp_history: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=_utc_now,
@@ -89,4 +92,14 @@ class ValidationRecordModel(Base):
         default=_utc_now,
         onupdate=_utc_now,
     )
-    batch: Mapped["ValidationBatchModel"] = relationship(back_populates="records")
+    batch: Mapped[ValidationBatchModel] = relationship(back_populates="records")
+    call_attempts: Mapped[list[CallAttemptModel]] = relationship(
+        back_populates="record",
+        cascade="all, delete-orphan",
+        order_by="CallAttemptModel.attempt_number",
+    )
+    whatsapp_messages: Mapped[list[WhatsAppMessageModel]] = relationship(
+        back_populates="record",
+        cascade="all, delete-orphan",
+        order_by="WhatsAppMessageModel.created_at",
+    )

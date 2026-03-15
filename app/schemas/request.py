@@ -15,9 +15,14 @@ class ValidationRecordRequest(BaseModel):
         min_length=1,
         validation_alias=AliasChoices("external_id", "id_registro"),
     )
-    supplier_name: str = Field(
+    client_name: str = Field(
         min_length=1,
-        validation_alias=AliasChoices("supplier_name", "nome_fornecedor"),
+        validation_alias=AliasChoices(
+            "client_name",
+            "supplier_name",
+            "nome_cliente",
+            "nome_fornecedor",
+        ),
     )
     cnpj: str = Field(min_length=1)
     phone: str = Field(
