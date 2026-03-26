@@ -6,6 +6,7 @@ from ..domain.statuses import (
     BusinessStatus,
     CallResult,
     CallStatus,
+    EmailStatus,
     FinalStatus,
     TechnicalStatus,
     WhatsAppStatus,
@@ -16,6 +17,7 @@ from ..schemas.response import (
     ValidationBatchSummary,
     ValidationRecordResponse,
 )
+from ..utils.email import normalize_email
 from .cnpj import is_valid_cnpj, normalize_cnpj
 from .official_company_registry_service import OfficialCompanyRegistryService
 from .phone import classify_phone, normalize_phone
@@ -31,7 +33,12 @@ class ValidationSnapshotBuilder:
         self.official_company_registry = official_company_registry
 
     def build_batch_snapshot(
-        self, payload: ValidationBatchRequest
+        self,
+        payload: ValidationBatchRequest,
+        *,
+        account_id: int | None = None,
+        api_token_id: int | None = None,
+        caller_company_name: str | None = None,
     ) -> ValidationBatchResponse:
         snapshot_time = datetime.now(timezone.utc)
         logger.info(
@@ -60,6 +67,9 @@ class ValidationSnapshotBuilder:
 
         return ValidationBatchResponse(
             batch_id=payload.batch_id,
+            account_id=account_id,
+            api_token_id=api_token_id,
+            caller_company_name=caller_company_name,
             source=payload.source.value,
             batch_status=(
                 BatchStatus.RECEIVED
@@ -85,13 +95,15 @@ class ValidationSnapshotBuilder:
         normalized_cnpj = normalize_cnpj(record.cnpj)
         normalized_phone = normalize_phone(record.phone)
         phone_type = classify_phone(record.phone)
+        normalized_email = normalize_email(record.email)
 
         logger.info(
-            "Pre-validando registro | external_id=%s client_name=%s cnpj=%s phone=%s",
+            "Pre-validando registro | external_id=%s client_name=%s cnpj=%s phone=%s email=%s",
             record.external_id,
             record.client_name,
             normalized_cnpj,
             normalized_phone,
+            normalized_email,
         )
 
         if not is_valid_cnpj(normalized_cnpj):
@@ -105,6 +117,8 @@ class ValidationSnapshotBuilder:
                 normalized_cnpj=normalized_cnpj or None,
                 normalized_phone=normalized_phone,
                 phone_type=phone_type,
+                normalized_email=normalized_email,
+                official_registry_email=None,
                 cnpj_found=False,
                 phone_valid=normalized_phone is not None,
                 business_status=BusinessStatus.VALIDATION_FAILED,
@@ -128,6 +142,8 @@ class ValidationSnapshotBuilder:
                 normalized_cnpj=normalized_cnpj,
                 normalized_phone=normalized_phone,
                 phone_type=phone_type,
+                normalized_email=normalized_email,
+                official_registry_email=None,
                 cnpj_found=False,
                 phone_valid=normalized_phone is not None,
                 business_status=BusinessStatus.CNPJ_NOT_FOUND,
@@ -135,6 +151,10 @@ class ValidationSnapshotBuilder:
                     "CNPJ nao localizado na base oficial de empresas consultada via BrasilAPI."
                 ),
             )
+
+        official_registry_email = self.official_company_registry.find_contact_email(
+            cnpj=normalized_cnpj,
+        )
 
         if normalized_phone is None:
             logger.warning(
@@ -147,6 +167,8 @@ class ValidationSnapshotBuilder:
                 normalized_cnpj=normalized_cnpj,
                 normalized_phone=None,
                 phone_type=phone_type,
+                normalized_email=normalized_email,
+                official_registry_email=official_registry_email,
                 cnpj_found=True,
                 phone_valid=False,
                 business_status=BusinessStatus.INVALID_PHONE,
@@ -168,6 +190,10 @@ class ValidationSnapshotBuilder:
             phone_original=record.phone,
             phone_normalized=normalized_phone,
             phone_type=phone_type,
+            email_original=record.email,
+            email_normalized=normalized_email,
+            official_registry_email=official_registry_email,
+            fallback_email_used=None,
             cnpj_found=True,
             phone_valid=True,
             ready_for_contact=True,
@@ -178,6 +204,7 @@ class ValidationSnapshotBuilder:
             transcript_summary=None,
             sentiment=None,
             whatsapp_status=WhatsAppStatus.NOT_REQUIRED,
+            email_status=EmailStatus.NOT_REQUIRED,
             phone_confirmed=False,
             confirmation_source=None,
             final_status=FinalStatus.PROCESSING,
@@ -191,6 +218,8 @@ class ValidationSnapshotBuilder:
         normalized_cnpj: str | None,
         normalized_phone: str | None,
         phone_type: str | None,
+        normalized_email: str | None,
+        official_registry_email: str | None,
         cnpj_found: bool,
         phone_valid: bool,
         business_status: BusinessStatus,
@@ -204,6 +233,10 @@ class ValidationSnapshotBuilder:
             phone_original=record.phone,
             phone_normalized=normalized_phone,
             phone_type=phone_type,
+            email_original=record.email,
+            email_normalized=normalized_email,
+            official_registry_email=official_registry_email,
+            fallback_email_used=None,
             cnpj_found=cnpj_found,
             phone_valid=phone_valid,
             ready_for_contact=False,
@@ -214,6 +247,7 @@ class ValidationSnapshotBuilder:
             transcript_summary=None,
             sentiment=None,
             whatsapp_status=WhatsAppStatus.NOT_REQUIRED,
+            email_status=EmailStatus.NOT_REQUIRED,
             phone_confirmed=False,
             confirmation_source=None,
             final_status=FinalStatus.VALIDATION_FAILED,
@@ -267,6 +301,14 @@ class ValidationSnapshotBuilder:
             ),
             waiting_whatsapp_reply=sum(
                 record.business_status == BusinessStatus.WAITING_WHATSAPP_REPLY
+                for record in records
+            ),
+            confirmed_by_email=sum(
+                record.business_status == BusinessStatus.CONFIRMED_BY_EMAIL
+                for record in records
+            ),
+            waiting_email_reply=sum(
+                record.business_status == BusinessStatus.WAITING_EMAIL_REPLY
                 for record in records
             ),
         )

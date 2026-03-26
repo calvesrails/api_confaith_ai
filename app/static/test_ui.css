@@ -201,3 +201,67 @@ button:hover {
     grid-template-columns: 1fr;
   }
 }
+
+
+.full-span {
+  grid-column: 1 / -1;
+}
+
+.table-wrapper {
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(216, 202, 181, 0.85);
+  background: #fffdf8;
+}
+
+.empty-state {
+  padding: 1rem;
+  color: var(--muted);
+}
+
+.batch-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 1rem 1rem 0;
+}
+
+.summary-chip {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 980px;
+}
+
+.batch-table th,
+.batch-table td {
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid rgba(216, 202, 181, 0.75);
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.9rem;
+}
+
+.batch-table th {
+  position: sticky;
+  top: 0;
+  background: #f8efe2;
+  color: var(--muted);
+  z-index: 1;
+}
+
+
+.batch-call-log {
+  min-height: 12rem;
+  max-height: 22rem;
+}

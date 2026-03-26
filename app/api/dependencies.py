@@ -4,18 +4,33 @@ from sqlalchemy.orm import Session
 from ..core.config import get_settings
 from ..core.memory_store import LocalTestMemoryStore, get_memory_store
 from ..db.session import get_db_session
+from ..repositories.platform_account_repository import PlatformAccountRepository
 from ..repositories.validation_batch_repository import ValidationBatchRepository
 from ..services.call_simulator import CallSimulatorService
+from ..services.email_service import EmailService
 from ..services.local_test_flow_service import LocalTestFlowService
 from ..services.official_company_registry_service import (
     OfficialCompanyRegistryService,
 )
 from ..services.openai_realtime_bridge import OpenAIRealtimeBridgeService
+from ..services.platform_account_service import PlatformAccountService
 from ..services.twilio_voice_service import TwilioVoiceService
 from ..services.validation_async_service import ValidationAsyncService
 from ..services.validation_flow import ValidationFlowService
 from ..services.validation_snapshot_builder import ValidationSnapshotBuilder
 from ..services.whatsapp_service import WhatsAppService
+
+
+async def get_platform_account_repository(
+    session: Session = Depends(get_db_session),
+) -> PlatformAccountRepository:
+    return PlatformAccountRepository(session=session)
+
+
+async def get_platform_account_service(
+    repository: PlatformAccountRepository = Depends(get_platform_account_repository),
+) -> PlatformAccountService:
+    return PlatformAccountService(repository=repository)
 
 
 async def get_validation_flow_service(
@@ -45,12 +60,19 @@ async def get_twilio_voice_service() -> TwilioVoiceService:
     )
 
 
-async def get_openai_realtime_bridge_service() -> OpenAIRealtimeBridgeService:
+async def get_openai_realtime_bridge_service(
+    session: Session = Depends(get_db_session),
+) -> OpenAIRealtimeBridgeService:
     settings = get_settings()
+    batch_repository = ValidationBatchRepository(session=session)
     return OpenAIRealtimeBridgeService(
         api_key=settings.openai_api_key,
         model=settings.openai_realtime_model,
         voice=settings.openai_realtime_voice,
+        output_speed=settings.openai_realtime_output_speed,
+        temperature=settings.openai_realtime_temperature,
+        max_response_output_tokens=settings.openai_realtime_max_response_output_tokens,
+        style_instructions=settings.openai_realtime_style_instructions,
         transcription_model=settings.openai_realtime_transcription_model,
         transcription_prompt=settings.openai_realtime_transcription_prompt,
         noise_reduction_type=settings.openai_realtime_noise_reduction,
@@ -58,12 +80,28 @@ async def get_openai_realtime_bridge_service() -> OpenAIRealtimeBridgeService:
         vad_prefix_padding_ms=settings.openai_realtime_vad_prefix_padding_ms,
         vad_silence_duration_ms=settings.openai_realtime_vad_silence_duration_ms,
         vad_interrupt_response=settings.openai_realtime_vad_interrupt_response,
+        batch_repository=batch_repository,
+    )
+
+
+async def get_email_service() -> EmailService:
+    settings = get_settings()
+    return EmailService(
+        host=settings.smtp_host,
+        port=settings.smtp_port,
+        username=settings.smtp_username,
+        password=settings.smtp_password,
+        use_tls=settings.smtp_use_tls,
+        from_address=settings.smtp_from_address,
+        from_name=settings.smtp_from_name,
     )
 
 
 async def get_validation_async_service(
     session: Session = Depends(get_db_session),
     twilio_voice_service: TwilioVoiceService = Depends(get_twilio_voice_service),
+    email_service: EmailService = Depends(get_email_service),
+    memory_store: LocalTestMemoryStore = Depends(get_memory_store),
 ) -> ValidationAsyncService:
     settings = get_settings()
     batch_repository = ValidationBatchRepository(session=session)
@@ -74,6 +112,8 @@ async def get_validation_async_service(
         batch_repository=batch_repository,
         official_company_registry=official_company_registry,
         twilio_voice_service=twilio_voice_service,
+        email_service=email_service,
+        memory_store=memory_store,
     )
 
 

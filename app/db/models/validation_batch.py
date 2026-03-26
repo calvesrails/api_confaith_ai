@@ -3,13 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SqlEnum, Integer, String
+from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...domain.statuses import BatchStatus, TechnicalStatus
 from ..base import Base
 
 if TYPE_CHECKING:
+    from .api_token import ApiTokenModel
+    from .platform_account import PlatformAccountModel
     from .validation_record import ValidationRecordModel
 
 
@@ -22,6 +24,18 @@ class ValidationBatchModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     batch_id: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    public_batch_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    platform_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("platform_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    api_token_id: Mapped[int | None] = mapped_column(
+        ForeignKey("api_tokens.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    caller_company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(40))
     batch_status: Mapped[BatchStatus] = mapped_column(
         SqlEnum(BatchStatus, native_enum=False)
@@ -47,4 +61,10 @@ class ValidationBatchModel(Base):
         back_populates="batch",
         cascade="all, delete-orphan",
         order_by="ValidationRecordModel.id",
+    )
+    platform_account: Mapped[PlatformAccountModel | None] = relationship(
+        back_populates="validation_batches",
+    )
+    api_token: Mapped[ApiTokenModel | None] = relationship(
+        back_populates="validation_batches",
     )

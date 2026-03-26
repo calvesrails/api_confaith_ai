@@ -19,6 +19,7 @@ from ...domain.statuses import (
     BusinessStatus,
     CallResult,
     CallStatus,
+    EmailStatus,
     FinalStatus,
     TechnicalStatus,
     WhatsAppStatus,
@@ -27,8 +28,10 @@ from ..base import Base
 
 if TYPE_CHECKING:
     from .call_attempt import CallAttemptModel
+    from .email_message import EmailMessageModel
     from .validation_batch import ValidationBatchModel
     from .whatsapp_message import WhatsAppMessageModel
+
 
 
 def _utc_now() -> datetime:
@@ -57,6 +60,9 @@ class ValidationRecordModel(Base):
     phone_original: Mapped[str] = mapped_column(String(32))
     phone_normalized: Mapped[str | None] = mapped_column(String(20), nullable=True)
     phone_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email_original: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    email_normalized: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    official_registry_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     cnpj_found: Mapped[bool] = mapped_column(Boolean, default=False)
     phone_valid: Mapped[bool] = mapped_column(Boolean, default=False)
     ready_for_contact: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -76,6 +82,10 @@ class ValidationRecordModel(Base):
     sentiment: Mapped[str | None] = mapped_column(String(40), nullable=True)
     whatsapp_status: Mapped[WhatsAppStatus] = mapped_column(
         SqlEnum(WhatsAppStatus, native_enum=False)
+    )
+    email_status: Mapped[EmailStatus] = mapped_column(
+        SqlEnum(EmailStatus, native_enum=False),
+        default=EmailStatus.NOT_REQUIRED,
     )
     phone_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     confirmation_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -102,4 +112,9 @@ class ValidationRecordModel(Base):
         back_populates="record",
         cascade="all, delete-orphan",
         order_by="WhatsAppMessageModel.created_at",
+    )
+    email_messages: Mapped[list[EmailMessageModel]] = relationship(
+        back_populates="record",
+        cascade="all, delete-orphan",
+        order_by="EmailMessageModel.created_at",
     )

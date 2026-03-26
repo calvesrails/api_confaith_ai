@@ -1,0 +1,272 @@
+:root {
+  color-scheme: light;
+  --bg: #f4efe7;
+  --panel: #fffaf3;
+  --panel-strong: #fffdf8;
+  --border: #dacdbd;
+  --text: #241a12;
+  --muted: #6f5a44;
+  --accent: #0f766e;
+  --accent-dark: #0b5f58;
+  --secondary: #9a3412;
+  --ghost: #f7efe3;
+  --shadow: 0 18px 40px rgba(63, 41, 18, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.11), transparent 24rem),
+    linear-gradient(180deg, #fbf6ef 0%, var(--bg) 100%);
+}
+
+.page-shell {
+  width: min(1240px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2rem 0 3rem;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.5rem 0 2rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.78rem;
+  color: var(--secondary);
+}
+
+.hero h1,
+.panel-header h2,
+.module-card h3 {
+  margin: 0;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1.03;
+}
+
+.subtitle,
+.panel-header p,
+.module-card p,
+.step-list,
+label span {
+  color: var(--muted);
+}
+
+.hero-badge {
+  min-width: 15rem;
+  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(216, 202, 181, 0.8);
+  background: rgba(255, 253, 248, 0.86);
+  box-shadow: var(--shadow);
+}
+
+.hero-badge span {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.hero-badge strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1rem;
+}
+
+.panel {
+  margin-bottom: 1.4rem;
+  padding: 1.2rem;
+  border-radius: 22px;
+  border: 1px solid rgba(216, 202, 181, 0.84);
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  box-shadow: var(--shadow);
+}
+
+.panel-header {
+  margin-bottom: 1rem;
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.context-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.module-card {
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(216, 202, 181, 0.76);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.module-card-wide {
+  grid-column: 1 / -1;
+}
+
+.module-form,
+.batch-form,
+.session-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+label {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  padding: 0.82rem 0.95rem;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 7rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.compact-actions {
+  margin-top: 0.2rem;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.85rem 1.2rem;
+  cursor: pointer;
+  transition: transform 140ms ease, opacity 140ms ease, background 140ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.primary:hover {
+  background: var(--accent-dark);
+}
+
+.secondary {
+  background: var(--secondary);
+  color: #fff7f2;
+}
+
+.ghost {
+  background: var(--ghost);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.step-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.output-panel {
+  min-height: 20rem;
+}
+
+.full-span {
+  grid-column: 1 / -1;
+}
+
+.json-block {
+  margin: 0;
+  min-height: 14rem;
+  max-height: 34rem;
+  overflow: auto;
+  padding: 1rem;
+  border-radius: 16px;
+  background: #221a11;
+  color: #f8f0df;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.log-block {
+  min-height: 18rem;
+}
+
+code {
+  font-family: "Courier New", Courier, monospace;
+}
+
+@media (max-width: 1100px) {
+  .context-grid,
+  .module-grid,
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    flex-direction: column;
+  }
+
+  .module-card-wide,
+  .full-width,
+  .full-span {
+    grid-column: auto;
+  }
+}

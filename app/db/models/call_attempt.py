@@ -28,6 +28,7 @@ class CallAttemptModel(Base):
     attempt_number: Mapped[int] = mapped_column(Integer)
     provider_call_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     phone_dialed: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    from_phone_number_used: Mapped[str | None] = mapped_column(String(20), nullable=True)
     phone_source: Mapped[CallPhoneSource] = mapped_column(
         SqlEnum(CallPhoneSource, native_enum=False),
         default=CallPhoneSource.PAYLOAD_PHONE,

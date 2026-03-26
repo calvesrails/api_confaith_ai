@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from ..utils.email import normalize_email
 from ..utils.strings import only_digits
 from .phone import normalize_phone
 
@@ -12,9 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 class OfficialCompanyRegistryService:
+    _company_data_cache: dict[str, dict[str, Any] | None] = {}
+
     def __init__(self, *, base_url: str, timeout_seconds: float = 10.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        cls._company_data_cache.clear()
 
     def exists(self, cnpj: str | None) -> bool:
         exists = self.fetch_company_data(cnpj) is not None
@@ -54,6 +61,27 @@ class OfficialCompanyRegistryService:
         )
         return alternative_phone
 
+    def find_contact_email(self, *, cnpj: str | None) -> str | None:
+        logger.info(
+            "Buscando e-mail de contato na base oficial | cnpj=%s",
+            only_digits(cnpj),
+        )
+        company_data = self.fetch_company_data(cnpj)
+        if company_data is None:
+            logger.warning(
+                "Base oficial nao retornou dados para e-mail de contato | cnpj=%s",
+                only_digits(cnpj),
+            )
+            return None
+
+        contact_email = self._extract_contact_email(company_data)
+        logger.info(
+            "Resultado busca de e-mail de contato | cnpj=%s email=%s",
+            only_digits(cnpj),
+            contact_email,
+        )
+        return contact_email
+
     def fetch_company_data(self, cnpj: str | None) -> dict[str, Any] | None:
         normalized_cnpj = only_digits(cnpj)
         if len(normalized_cnpj) != 14:
@@ -62,6 +90,14 @@ class OfficialCompanyRegistryService:
                 normalized_cnpj,
             )
             return None
+
+        if normalized_cnpj in self._company_data_cache:
+            logger.info(
+                "Usando cache local da base oficial | cnpj=%s cache_hit=%s",
+                normalized_cnpj,
+                self._company_data_cache[normalized_cnpj] is not None,
+            )
+            return self._company_data_cache[normalized_cnpj]
 
         logger.info(
             "Consultando BrasilAPI | cnpj=%s url=%s/%s",
@@ -81,6 +117,8 @@ class OfficialCompanyRegistryService:
                 normalized_cnpj,
                 error.response.status_code,
             )
+            if error.response.status_code == 404:
+                self._company_data_cache[normalized_cnpj] = None
             return None
         except httpx.HTTPError as error:
             logger.exception(
@@ -97,6 +135,7 @@ class OfficialCompanyRegistryService:
                 normalized_cnpj,
                 payload.get("razao_social"),
             )
+            self._company_data_cache[normalized_cnpj] = payload
             return payload
 
         logger.warning(
@@ -127,3 +166,12 @@ class OfficialCompanyRegistryService:
                 candidate_phones.append(normalized_phone)
 
         return candidate_phones[0] if candidate_phones else None
+
+    def _extract_contact_email(self, company_data: dict[str, Any]) -> str | None:
+        for email_key in ("email", "correio_eletronico"):
+            email_value = company_data.get(email_key)
+            if isinstance(email_value, str):
+                normalized = normalize_email(email_value)
+                if normalized:
+                    return normalized
+        return None

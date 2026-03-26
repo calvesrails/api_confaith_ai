@@ -29,6 +29,10 @@ class ValidationRecordRequest(BaseModel):
         min_length=1,
         validation_alias=AliasChoices("phone", "telefone"),
     )
+    email: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("email", "e_mail", "correio_eletronico"),
+    )
 
 
 class ValidationBatchRequest(BaseModel):

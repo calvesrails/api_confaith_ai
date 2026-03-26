@@ -13,6 +13,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from ..domain.statuses import CallResult, CallStatus
+from ..repositories.validation_batch_repository import ValidationBatchRepository
 from .errors import ProviderConfigurationError, RealtimeBridgeError
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,16 @@ class RealtimeCallContext:
     client_name: str
     cnpj: str
     phone_dialed: str
+    caller_company_name: str | None = None
+    resolved_api_key: str | None = None
+    resolved_model: str | None = None
+    resolved_voice: str | None = None
+    resolved_output_speed: float | None = None
+    resolved_style_instructions: str | None = None
+    realtime_model_override: str | None = None
+    realtime_voice_override: str | None = None
+    realtime_output_speed_override: float | None = None
+    realtime_style_profile: str | None = None
 
 
 @dataclass(slots=True)
@@ -49,10 +60,16 @@ class _BridgeState:
     classification: CallResult | None = None
     assistant_has_responded: bool = False
     assistant_response_count: int = 0
+    last_assistant_response_classification: CallResult | None = None
+    openai_response_active: bool = False
+    pending_response_create: bool = False
+    classification_source: str | None = None
+    close_after_assistant_response_count: int | None = None
     latest_output_mark_name: str | None = None
     waiting_close_mark_name: str | None = None
     should_close_twilio: bool = False
     close_twilio_not_before: float | None = None
+    ignore_twilio_audio_until: float | None = None
     observation: str | None = None
     twilio_input_audio_chunks: int = 0
     openai_output_audio_chunks: int = 0
@@ -66,6 +83,10 @@ class OpenAIRealtimeBridgeService:
         api_key: str | None,
         model: str,
         voice: str,
+        output_speed: float | None,
+        temperature: float | None,
+        max_response_output_tokens: int | None,
+        style_instructions: str | None,
         transcription_model: str,
         transcription_prompt: str | None,
         noise_reduction_type: str | None = "near_field",
@@ -73,10 +94,15 @@ class OpenAIRealtimeBridgeService:
         vad_prefix_padding_ms: int | None = None,
         vad_silence_duration_ms: int | None = None,
         vad_interrupt_response: bool = False,
+        batch_repository: ValidationBatchRepository | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.voice = voice
+        self.output_speed = output_speed
+        self.temperature = temperature
+        self.max_response_output_tokens = max_response_output_tokens
+        self.style_instructions = style_instructions
         self.transcription_model = transcription_model
         self.transcription_prompt = transcription_prompt
         self.noise_reduction_type = noise_reduction_type
@@ -84,6 +110,7 @@ class OpenAIRealtimeBridgeService:
         self.vad_prefix_padding_ms = vad_prefix_padding_ms
         self.vad_silence_duration_ms = vad_silence_duration_ms
         self.vad_interrupt_response = vad_interrupt_response
+        self.batch_repository = batch_repository
 
     def is_configured(self) -> bool:
         return bool(self.api_key and self.model and self.voice)
@@ -91,7 +118,6 @@ class OpenAIRealtimeBridgeService:
     async def bridge_media_stream(self, twilio_websocket: WebSocket) -> RealtimeBridgeResult:
         logger.info("Aceitando conexao do Twilio Media Stream")
         await twilio_websocket.accept()
-        self._ensure_configured()
 
         state = _BridgeState()
         openai_websocket = None
@@ -164,6 +190,8 @@ class OpenAIRealtimeBridgeService:
                     state.stream_sid = start_payload.get("streamSid") or payload.get("streamSid")
                     state.provider_call_id = start_payload.get("callSid")
                     state.context = self._build_context(start_payload.get("customParameters") or {})
+                    self._hydrate_context_from_batch(state.context)
+                    self._ensure_runtime_configured(state.context)
                     logger.info(
                         "Bridge com OpenAI Realtime iniciada | batch_id=%s external_id=%s provider_call_id=%s stream_sid=%s",
                         state.context.batch_id,
@@ -172,9 +200,9 @@ class OpenAIRealtimeBridgeService:
                         state.stream_sid,
                     )
                     openai_websocket = await websockets.connect(
-                        f"wss://api.openai.com/v1/realtime?model={self.model}",
+                        f"wss://api.openai.com/v1/realtime?model={self._resolve_model(state.context)}",
                         additional_headers={
-                            "Authorization": f"Bearer {self.api_key}",
+                            "Authorization": f"Bearer {self._resolve_api_key(state.context)}",
                         },
                         max_size=None,
                     )
@@ -182,8 +210,8 @@ class OpenAIRealtimeBridgeService:
                         "Conexao WebSocket com OpenAI Realtime estabelecida | batch_id=%s external_id=%s model=%s voice=%s",
                         state.context.batch_id,
                         state.context.external_id,
-                        self.model,
-                        self.voice,
+                        self._resolve_model(state.context),
+                        self._resolve_voice(state.context),
                     )
                     await self._configure_session(openai_websocket, state.context)
                     openai_listener_task = asyncio.create_task(
@@ -193,11 +221,18 @@ class OpenAIRealtimeBridgeService:
                             state=state,
                         )
                     )
-                    await self._start_agent_turn(openai_websocket, state.context)
+                    await self._start_agent_turn(openai_websocket, state.context, state)
                     continue
 
                 if event_type == "media" and openai_websocket is not None:
                     if state.should_close_twilio or state.waiting_close_mark_name is not None:
+                        continue
+
+                    loop_time = asyncio.get_running_loop().time()
+                    if (
+                        state.ignore_twilio_audio_until is not None
+                        and loop_time < state.ignore_twilio_audio_until
+                    ):
                         continue
 
                     media_payload = payload.get("media") or {}
@@ -272,11 +307,12 @@ class OpenAIRealtimeBridgeService:
         context: RealtimeCallContext,
     ) -> None:
         logger.info(
-            "Enviando session.update para OpenAI Realtime | batch_id=%s external_id=%s voice=%s model=%s transcription_model=%s noise_reduction=%s vad_threshold=%s vad_prefix_padding_ms=%s vad_silence_duration_ms=%s vad_interrupt_response=%s",
+            "Enviando session.update para OpenAI Realtime | batch_id=%s external_id=%s voice=%s output_speed=%s model=%s transcription_model=%s noise_reduction=%s vad_threshold=%s vad_prefix_padding_ms=%s vad_silence_duration_ms=%s vad_interrupt_response=%s",
             context.batch_id,
             context.external_id,
-            self.voice,
-            self.model,
+            self._resolve_voice(context),
+            self._resolve_output_speed(context),
+            self._resolve_model(context),
             self.transcription_model,
             self.noise_reduction_type,
             self.vad_threshold,
@@ -294,7 +330,7 @@ class OpenAIRealtimeBridgeService:
         turn_detection_config: dict[str, Any] = {
             "type": "server_vad",
             "interrupt_response": self.vad_interrupt_response,
-            "create_response": True,
+            "create_response": False,
         }
         if self.vad_threshold is not None:
             turn_detection_config["threshold"] = self.vad_threshold
@@ -311,21 +347,27 @@ class OpenAIRealtimeBridgeService:
         if self.noise_reduction_type:
             input_audio_config["noise_reduction"] = {"type": self.noise_reduction_type}
 
+        output_audio_config: dict[str, Any] = {
+            "format": {"type": "audio/pcmu"},
+            "voice": self._resolve_voice(context),
+        }
+        resolved_output_speed = self._resolve_output_speed(context)
+        if resolved_output_speed is not None:
+            output_audio_config["speed"] = resolved_output_speed
+
+        session_config: dict[str, Any] = {
+            "type": "realtime",
+            "instructions": self._build_instructions(context),
+            "audio": {
+                "input": input_audio_config,
+                "output": output_audio_config,
+            },
+        }
         await openai_websocket.send(
             json.dumps(
                 {
                     "type": "session.update",
-                    "session": {
-                        "type": "realtime",
-                        "instructions": self._build_instructions(context),
-                        "audio": {
-                            "input": input_audio_config,
-                            "output": {
-                                "format": {"type": "audio/pcmu"},
-                                "voice": self.voice,
-                            },
-                        },
-                    },
+                    "session": session_config,
                 }
             )
         )
@@ -334,12 +376,14 @@ class OpenAIRealtimeBridgeService:
         self,
         openai_websocket: Any,
         context: RealtimeCallContext,
+        state: _BridgeState,
     ) -> None:
         logger.info(
             "Iniciando prompt da ligacao no OpenAI Realtime | batch_id=%s external_id=%s",
             context.batch_id,
             context.external_id,
         )
+        caller_company_name = context.caller_company_name or "Central de Validacao Cadastral"
         await openai_websocket.send(
             json.dumps(
                 {
@@ -351,8 +395,8 @@ class OpenAIRealtimeBridgeService:
                             {
                                 "type": "input_text",
                                 "text": (
-                                    "Inicie agora a ligacao, em portugues do Brasil, e valide se o numero "
-                                    f"{context.phone_dialed} pertence a empresa {context.client_name}, CNPJ {context.cnpj}."
+                                    "Inicie agora a ligacao, em portugues do Brasil, se apresentando em nome da empresa "
+                                    f"{caller_company_name}, e valide se o numero {context.phone_dialed} pertence a empresa {context.client_name}, CNPJ {context.cnpj}."
                                 ),
                             }
                         ],
@@ -360,7 +404,29 @@ class OpenAIRealtimeBridgeService:
                 }
             )
         )
+        await self._request_openai_response(openai_websocket, state, allow_defer=False)
+
+    async def _request_openai_response(
+        self,
+        openai_websocket: Any,
+        state: _BridgeState,
+        *,
+        allow_defer: bool,
+    ) -> bool:
+        if allow_defer and state.openai_response_active:
+            state.pending_response_create = True
+            logger.info(
+                "Resposta da IA adiada ate o termino da resposta atual | batch_id=%s external_id=%s assistant_response_count=%s",
+                state.context.batch_id if state.context else None,
+                state.context.external_id if state.context else None,
+                state.assistant_response_count,
+            )
+            return False
+
+        state.pending_response_create = False
+        state.openai_response_active = True
         await openai_websocket.send(json.dumps({"type": "response.create"}))
+        return True
 
     async def _forward_openai_events(
         self,
@@ -373,7 +439,18 @@ class OpenAIRealtimeBridgeService:
             event = self._safe_json(raw_message)
             event_type = event.get("type")
 
-            if event_type in {"session.created", "session.updated", "response.created"}:
+            if event_type in {"session.created", "session.updated"}:
+                logger.info(
+                    "Evento do OpenAI Realtime recebido | batch_id=%s external_id=%s event_type=%s",
+                    state.context.batch_id if state.context else None,
+                    state.context.external_id if state.context else None,
+                    event_type,
+                )
+                continue
+
+            if event_type == "response.created":
+                state.openai_response_active = True
+                state.last_assistant_response_classification = None
                 logger.info(
                     "Evento do OpenAI Realtime recebido | batch_id=%s external_id=%s event_type=%s",
                     state.context.batch_id if state.context else None,
@@ -445,13 +522,17 @@ class OpenAIRealtimeBridgeService:
                 if isinstance(transcript, str) and transcript.strip():
                     cleaned_transcript = transcript.strip()
                     state.assistant_transcripts.append(cleaned_transcript)
-                    if state.classification is None:
-                        state.classification = self._classify_assistant_transcript(cleaned_transcript)
-                        logger.info(
-                            "Classificacao automatica pela fala do agente | classification=%s",
-                            state.classification,
-                        )
-                        await self._maybe_close_twilio_stream(twilio_websocket, state)
+                    classification = self._classify_assistant_transcript(cleaned_transcript)
+                    logger.info(
+                        "Classificacao automatica pela fala do agente | classification=%s",
+                        classification,
+                    )
+                    state.last_assistant_response_classification = classification
+                    self._register_classification(
+                        classification,
+                        source="assistant",
+                        state=state,
+                    )
                 continue
 
             if event_type == "response.done":
@@ -462,8 +543,22 @@ class OpenAIRealtimeBridgeService:
                     state.openai_output_audio_chunks,
                     state.twilio_input_audio_chunks,
                 )
+                state.openai_response_active = False
                 state.assistant_has_responded = True
                 state.assistant_response_count += 1
+                state.ignore_twilio_audio_until = asyncio.get_running_loop().time() + 0.8
+                if state.pending_response_create:
+                    logger.info(
+                        "Disparando resposta pendente da IA apos termino da resposta anterior | batch_id=%s external_id=%s assistant_response_count=%s",
+                        state.context.batch_id if state.context else None,
+                        state.context.external_id if state.context else None,
+                        state.assistant_response_count,
+                    )
+                    await self._request_openai_response(
+                        openai_websocket,
+                        state,
+                        allow_defer=False,
+                    )
                 await self._maybe_close_twilio_stream(twilio_websocket, state)
                 continue
 
@@ -476,16 +571,47 @@ class OpenAIRealtimeBridgeService:
                         "Transcricao recebida do OpenAI Realtime | transcript=%s",
                         cleaned_transcript,
                     )
-                    if state.classification is None:
-                        state.classification = self._classify_transcript(cleaned_transcript)
+                    classification = self._classify_transcript(cleaned_transcript)
+                    logger.info(
+                        "Classificacao automatica do transcript | classification=%s",
+                        classification,
+                    )
+                    self._register_classification(
+                        classification,
+                        source="user",
+                        state=state,
+                    )
+                    if self._should_create_response_for_user_transcript(cleaned_transcript):
                         logger.info(
-                            "Classificacao automatica do transcript | classification=%s",
-                            state.classification,
+                            "Disparando resposta manual da IA apos transcricao valida do usuario | batch_id=%s external_id=%s",
+                            state.context.batch_id if state.context else None,
+                            state.context.external_id if state.context else None,
                         )
-                        await self._maybe_close_twilio_stream(twilio_websocket, state)
+                        await self._request_openai_response(
+                            openai_websocket,
+                            state,
+                            allow_defer=True,
+                        )
+                    else:
+                        logger.info(
+                            "Ignorando transcricao ambigua ou ruido antes de gerar nova resposta | batch_id=%s external_id=%s transcript=%s",
+                            state.context.batch_id if state.context else None,
+                            state.context.external_id if state.context else None,
+                            cleaned_transcript,
+                        )
                 continue
 
             if event_type == "error":
+                error_payload = event.get("error") or {}
+                if error_payload.get("code") == "conversation_already_has_active_response":
+                    state.pending_response_create = True
+                    logger.warning(
+                        "OpenAI ainda esta concluindo a resposta anterior; nova resposta sera disparada apos o termino da atual | batch_id=%s external_id=%s",
+                        state.context.batch_id if state.context else None,
+                        state.context.external_id if state.context else None,
+                    )
+                    continue
+
                 logger.error(
                     "OpenAI Realtime retornou erro | batch_id=%s external_id=%s payload=%s",
                     state.context.batch_id if state.context else None,
@@ -504,6 +630,11 @@ class OpenAIRealtimeBridgeService:
                 client_name=str(custom_parameters.get("client_name") or "Cliente sem nome"),
                 cnpj=str(custom_parameters.get("cnpj") or ""),
                 phone_dialed=str(custom_parameters.get("phone_dialed") or ""),
+                caller_company_name=self._parse_optional_string(custom_parameters.get("caller_company_name")),
+                realtime_model_override=self._parse_optional_string(custom_parameters.get("realtime_model")),
+                realtime_voice_override=self._parse_optional_string(custom_parameters.get("realtime_voice")),
+                realtime_output_speed_override=self._parse_optional_float(custom_parameters.get("realtime_output_speed")),
+                realtime_style_profile=self._parse_optional_string(custom_parameters.get("realtime_style_profile")),
             )
         except (TypeError, ValueError) as error:
             raise RealtimeBridgeError("Parametros do Twilio Media Stream invalidos.") from error
@@ -564,20 +695,111 @@ class OpenAIRealtimeBridgeService:
         )
 
     def _build_instructions(self, context: RealtimeCallContext) -> str:
-        return (
-            "Voce e uma agente de voz de validacao cadastral em portugues do Brasil, com tom caloroso, natural, humano e com voz feminina suave. "
+        caller_company_name = context.caller_company_name or "Central de Validacao Cadastral"
+        instructions = (
+            "Voce e uma agente de voz de validacao cadastral em portugues do Brasil, com tom caloroso, natural e humano. "
             "Fale como uma atendente brasileira cordial em uma ligacao curta, sem soar robotica. "
             "Seu unico objetivo e validar se o telefone atual pertence ao cliente informado. "
-            "Apresente-se brevemente, diga que esta validando o cadastro e faca uma pergunta objetiva. "
+            f"Apresente-se brevemente em nome da empresa {caller_company_name}. "
+            f"Explique que esta validando o cadastro da empresa {context.client_name}, CNPJ {context.cnpj}, e faca uma pergunta objetiva. "
             "Peca uma resposta curta, de preferencia SIM se o numero pertence ao cliente ou NAO se nao pertence. "
-            "Cliente: "
-            f"{context.client_name}. "
-            f"CNPJ: {context.cnpj}. "
             "Se a resposta for positiva, agradeca e informe que a validacao foi concluida. "
             "Se a resposta for negativa, agradeca e diga que o cadastro sera atualizado. "
             "Se a resposta estiver confusa, faca no maximo uma repergunta curta. "
             "Use frases curtas, ritmo natural e linguagem apropriada para telefone."
         )
+        profile_instructions = self._resolve_style_profile_instructions(context)
+        if profile_instructions:
+            instructions = f"{instructions} {profile_instructions}"
+        if context.resolved_style_instructions:
+            instructions = f"{instructions} {context.resolved_style_instructions.strip()}"
+        if self.style_instructions and self.style_instructions.strip() != (context.resolved_style_instructions or "").strip():
+            instructions = f"{instructions} {self.style_instructions.strip()}"
+        return instructions
+
+    def _hydrate_context_from_batch(self, context: RealtimeCallContext) -> None:
+        if self.batch_repository is None or not context.batch_id:
+            return
+
+        batch_model = self.batch_repository.get_batch_model(context.batch_id)
+        if batch_model is None:
+            return
+
+        platform_account = getattr(batch_model, "platform_account", None)
+        openai_credential = getattr(platform_account, "openai_credential", None) if platform_account is not None else None
+
+        if not context.caller_company_name:
+            context.caller_company_name = (
+                getattr(batch_model, "caller_company_name", None)
+                or getattr(platform_account, "spoken_company_name", None)
+                or getattr(platform_account, "company_name", None)
+            )
+
+        if openai_credential is None:
+            return
+
+        context.resolved_api_key = getattr(openai_credential, "api_key", None) or None
+        context.resolved_model = getattr(openai_credential, "realtime_model", None) or None
+        context.resolved_voice = getattr(openai_credential, "realtime_voice", None) or None
+        context.resolved_output_speed = getattr(openai_credential, "realtime_output_speed", None)
+        context.resolved_style_instructions = getattr(openai_credential, "realtime_style_instructions", None) or None
+
+    def _resolve_api_key(self, context: RealtimeCallContext | None) -> str | None:
+        if context and context.resolved_api_key:
+            return context.resolved_api_key
+        return self.api_key
+
+    def _resolve_model(self, context: RealtimeCallContext | None) -> str:
+        if context and context.realtime_model_override:
+            return context.realtime_model_override
+        if context and context.resolved_model:
+            return context.resolved_model
+        return self.model
+
+    def _resolve_voice(self, context: RealtimeCallContext | None) -> str:
+        if context and context.realtime_voice_override:
+            return context.realtime_voice_override
+        if context and context.resolved_voice:
+            return context.resolved_voice
+        return self.voice
+
+    def _resolve_output_speed(self, context: RealtimeCallContext | None) -> float | None:
+        if context and context.realtime_output_speed_override is not None:
+            return context.realtime_output_speed_override
+        if context and context.resolved_output_speed is not None:
+            return context.resolved_output_speed
+        return self.output_speed
+
+    def _resolve_style_profile_instructions(self, context: RealtimeCallContext | None) -> str | None:
+        if context is None or not context.realtime_style_profile:
+            return None
+
+        profile_instructions = {
+            "warm_feminine": (
+                "Use voz feminina suave, acolhedora e natural, com leve sorriso na voz, pausas curtas e ritmo telefonico calmo."
+            ),
+            "clear_professional": (
+                "Use tom profissional, claro e confiante, com diccao muito limpa, objetividade e sem soar fria."
+            ),
+            "calm_slow": (
+                "Fale um pouco mais devagar, com pausas discretas, serenidade e escuta ativa, sem soar arrastada."
+            ),
+            "bright_friendly": (
+                "Use tom amigavel e mais vivo, com energia leve, simpatia natural e fala humana sem exagero teatral."
+            ),
+        }
+        return profile_instructions.get(context.realtime_style_profile)
+
+    def _parse_optional_string(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        text_value = str(value).strip()
+        return text_value or None
+
+    def _parse_optional_float(self, value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        return float(value)
 
     def _classify_transcript(self, transcript: str) -> CallResult | None:
         normalized = self._normalize_text(transcript)
@@ -636,6 +858,60 @@ class OpenAIRealtimeBridgeService:
 
         return None
 
+    def _should_create_response_for_user_transcript(self, transcript: str) -> bool:
+        normalized = self._normalize_text(transcript)
+        if not normalized:
+            return False
+
+        filler_tokens = {
+            "a",
+            "ah",
+            "ahn",
+            "aham",
+            "eh",
+            "er",
+            "hm",
+            "hmm",
+            "hum",
+            "mmm",
+            "uh",
+            "uhum",
+            "um",
+        }
+        tokens = normalized.split()
+        if tokens and all(token in filler_tokens for token in tokens):
+            return False
+        return True
+
+    def _register_classification(
+        self,
+        classification: CallResult | None,
+        *,
+        source: str,
+        state: _BridgeState,
+    ) -> None:
+        if classification is None:
+            return
+
+        if state.classification is not None:
+            return
+
+        state.classification = classification
+        state.classification_source = source
+        target_response_count = state.assistant_response_count + 1
+        if source == "user" and state.openai_response_active:
+            target_response_count += 1
+        state.close_after_assistant_response_count = target_response_count
+        logger.info(
+            "Classificacao final registrada | batch_id=%s external_id=%s classification=%s source=%s close_after_assistant_response_count=%s assistant_response_count=%s",
+            state.context.batch_id if state.context else None,
+            state.context.external_id if state.context else None,
+            state.classification,
+            state.classification_source,
+            state.close_after_assistant_response_count,
+            state.assistant_response_count,
+        )
+
     async def _maybe_close_twilio_stream(
         self,
         twilio_websocket: WebSocket,
@@ -643,7 +919,38 @@ class OpenAIRealtimeBridgeService:
     ) -> None:
         del twilio_websocket
 
-        if state.classification is None or state.assistant_response_count < 2:
+        if state.classification is None:
+            return
+
+        target_response_count = state.close_after_assistant_response_count
+        if target_response_count is None:
+            state.close_after_assistant_response_count = state.assistant_response_count + 1
+            target_response_count = state.close_after_assistant_response_count
+
+        if state.assistant_response_count < target_response_count:
+            logger.info(
+                "Aguardando resposta final da IA antes de encerrar a chamada | batch_id=%s external_id=%s classification=%s assistant_response_count=%s close_after_assistant_response_count=%s",
+                state.context.batch_id if state.context else None,
+                state.context.external_id if state.context else None,
+                state.classification,
+                state.assistant_response_count,
+                target_response_count,
+            )
+            return
+
+        if (
+            state.classification_source == "user"
+            and state.last_assistant_response_classification != state.classification
+        ):
+            state.close_after_assistant_response_count = state.assistant_response_count + 1
+            logger.info(
+                "Mantendo chamada ativa porque a ultima resposta da IA ainda nao foi conclusiva | batch_id=%s external_id=%s classification=%s last_assistant_response_classification=%s next_close_after_assistant_response_count=%s",
+                state.context.batch_id if state.context else None,
+                state.context.external_id if state.context else None,
+                state.classification,
+                state.last_assistant_response_classification,
+                state.close_after_assistant_response_count,
+            )
             return
 
         if state.latest_output_mark_name:
@@ -742,11 +1049,14 @@ class OpenAIRealtimeBridgeService:
         return payload
 
     def _ensure_configured(self) -> None:
-        if self.is_configured():
+        self._ensure_runtime_configured(None)
+
+    def _ensure_runtime_configured(self, context: RealtimeCallContext | None) -> None:
+        if self._resolve_api_key(context) and self._resolve_model(context) and self._resolve_voice(context):
             return
         raise ProviderConfigurationError(
             "OpenAI Realtime",
-            "defina OPENAI_API_KEY, OPENAI_REALTIME_MODEL e OPENAI_REALTIME_VOICE.",
+            "defina uma chave OpenAI, o modelo Realtime e a voz padrao, globalmente ou na conta vinculada ao lote.",
         )
 
     def _should_log_chunk(self, chunk_index: int) -> bool:

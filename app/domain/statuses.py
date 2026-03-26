@@ -30,6 +30,10 @@ class BusinessStatus(str, Enum):
     WAITING_WHATSAPP_REPLY = "waiting_whatsapp_reply"
     CONFIRMED_BY_WHATSAPP = "confirmed_by_whatsapp"
     REJECTED_BY_WHATSAPP = "rejected_by_whatsapp"
+    EMAIL_SENT = "email_sent"
+    WAITING_EMAIL_REPLY = "waiting_email_reply"
+    CONFIRMED_BY_EMAIL = "confirmed_by_email"
+    REJECTED_BY_EMAIL = "rejected_by_email"
     VALIDATION_FAILED = "validation_failed"
     VALIDATED = "validated"
 
@@ -63,6 +67,16 @@ class WhatsAppStatus(str, Enum):
     WAITING_REPLY = "waiting_whatsapp_reply"
     CONFIRMED = "confirmed_by_whatsapp"
     REJECTED = "rejected_by_whatsapp"
+    EXPIRED = "expired_without_reply"
+
+
+class EmailStatus(str, Enum):
+    NOT_REQUIRED = "not_required"
+    SENT = "sent"
+    WAITING_REPLY = "waiting_email_reply"
+    CONFIRMED = "confirmed_by_email"
+    REJECTED = "rejected_by_email"
+    FAILED = "failed"
     EXPIRED = "expired_without_reply"
 
 

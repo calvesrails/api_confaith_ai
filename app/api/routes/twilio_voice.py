@@ -36,10 +36,15 @@ async def get_twiml_for_call(
             batch_id=query.get("batch_id", ""),
             external_id=query.get("external_id", ""),
             attempt_number=query.get("attempt_number", "1"),
+            caller_company_name=query.get("caller_company_name"),
             client_name=query.get("client_name", "Cliente sem nome"),
             cnpj=query.get("cnpj", ""),
             phone_dialed=query.get("phone_dialed", ""),
             twiml_mode=twiml_mode,
+            realtime_model=query.get("realtime_model"),
+            realtime_voice=query.get("realtime_voice"),
+            realtime_output_speed=query.get("realtime_output_speed"),
+            realtime_style_profile=query.get("realtime_style_profile"),
         )
     except ProviderConfigurationError as error:
         raise HTTPException(

@@ -22,6 +22,7 @@ class LocalTestMemoryStore:
         self._logs: list[dict[str, Any]] = []
         self._last_webhook_payload: dict[str, Any] | None = None
         self._last_webhook_event: dict[str, Any] | None = None
+        self._batch_realtime_profiles: dict[str, dict[str, Any]] = {}
 
     def reset(self) -> None:
         with self._lock:
@@ -30,6 +31,7 @@ class LocalTestMemoryStore:
             self._logs.clear()
             self._last_webhook_payload = None
             self._last_webhook_event = None
+            self._batch_realtime_profiles.clear()
 
     def add_log(
         self,
@@ -99,6 +101,23 @@ class LocalTestMemoryStore:
         with self._lock:
             self._last_webhook_payload = deepcopy(payload)
             self._last_webhook_event = deepcopy(event_summary)
+
+    def set_batch_realtime_profile(
+        self,
+        batch_id: str,
+        profile: dict[str, Any],
+    ) -> None:
+        with self._lock:
+            self._batch_realtime_profiles[str(batch_id)] = deepcopy(profile)
+
+    def get_batch_realtime_profile(self, batch_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            profile = self._batch_realtime_profiles.get(str(batch_id))
+            return deepcopy(profile) if profile is not None else None
+
+    def clear_batch_realtime_profile(self, batch_id: str) -> None:
+        with self._lock:
+            self._batch_realtime_profiles.pop(str(batch_id), None)
 
     def get_state(self) -> dict[str, Any]:
         with self._lock:

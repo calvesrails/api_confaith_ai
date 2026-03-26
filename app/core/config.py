@@ -12,14 +12,39 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_env: str = Field(default="development", alias="APP_ENV")
     app_debug: bool = Field(default=True, alias="APP_DEBUG")
+    app_public_base_url: str | None = Field(default=None, alias="APP_PUBLIC_BASE_URL")
+    platform_admin_api_key: str | None = Field(
+        default=None,
+        alias="PLATFORM_ADMIN_API_KEY",
+    )
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_realtime_model: str = Field(
-        default="gpt-realtime",
+        default="gpt-realtime-1.5",
         alias="OPENAI_REALTIME_MODEL",
     )
     openai_realtime_voice: str = Field(
-        default="marin",
+        default="cedar",
         alias="OPENAI_REALTIME_VOICE",
+    )
+    openai_realtime_output_speed: float | None = Field(
+        default=0.93,
+        alias="OPENAI_REALTIME_OUTPUT_SPEED",
+    )
+    openai_realtime_temperature: float | None = Field(
+        default=0.8,
+        alias="OPENAI_REALTIME_TEMPERATURE",
+    )
+    openai_realtime_max_response_output_tokens: int | None = Field(
+        default=220,
+        alias="OPENAI_REALTIME_MAX_RESPONSE_OUTPUT_TOKENS",
+    )
+    openai_realtime_style_instructions: str | None = Field(
+        default=(
+            "Fale como uma atendente brasileira real, com voz suave, acolhedora e natural. "
+            "Use pausas curtas, diccao clara, ritmo calmo de telefonia e leve sorriso na voz. "
+            "Evite soar robotica, teatral ou acelerada demais."
+        ),
+        alias="OPENAI_REALTIME_STYLE_INSTRUCTIONS",
     )
     openai_realtime_transcription_model: str = Field(
         default="gpt-4o-transcribe",
@@ -74,6 +99,13 @@ class Settings(BaseSettings):
     )
     meta_verify_token: str | None = Field(default=None, alias="META_VERIFY_TOKEN")
     meta_api_version: str = Field(default="v22.0", alias="META_API_VERSION")
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    smtp_from_address: str | None = Field(default=None, alias="SMTP_FROM_ADDRESS")
+    smtp_from_name: str = Field(default="Central de Validacao Cadastral", alias="SMTP_FROM_NAME")
 
     model_config = SettingsConfigDict(
         env_file=".env",
