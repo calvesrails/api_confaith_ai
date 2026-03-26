@@ -23,6 +23,7 @@ class LocalTestMemoryStore:
         self._last_webhook_payload: dict[str, Any] | None = None
         self._last_webhook_event: dict[str, Any] | None = None
         self._batch_realtime_profiles: dict[str, dict[str, Any]] = {}
+        self._supplier_discovery_runs: dict[str, dict[str, Any]] = {}
 
     def reset(self) -> None:
         with self._lock:
@@ -32,6 +33,7 @@ class LocalTestMemoryStore:
             self._last_webhook_payload = None
             self._last_webhook_event = None
             self._batch_realtime_profiles.clear()
+            self._supplier_discovery_runs.clear()
 
     def add_log(
         self,
@@ -40,19 +42,19 @@ class LocalTestMemoryStore:
         data: dict[str, Any] | None = None,
     ) -> None:
         log_entry = {
-            "timestamp": _iso_now(),
-            "stage": stage,
-            "message": message,
-            "data": deepcopy(data) if data is not None else None,
+            'timestamp': _iso_now(),
+            'stage': stage,
+            'message': message,
+            'data': deepcopy(data) if data is not None else None,
         }
         with self._lock:
             self._logs.insert(0, log_entry)
             del self._logs[self.max_logs :]
 
     def upsert_test_request(self, request_data: dict[str, Any]) -> dict[str, Any]:
-        request_id = str(request_data["request_id"])
+        request_id = str(request_data['request_id'])
         with self._lock:
-            index = self._find_request_index(lambda item: item["request_id"] == request_id)
+            index = self._find_request_index(lambda item: item['request_id'] == request_id)
             if index is None:
                 self._test_requests.insert(0, deepcopy(request_data))
                 stored_index = 0
@@ -75,11 +77,11 @@ class LocalTestMemoryStore:
         only_waiting_whatsapp: bool = False,
     ) -> dict[str, Any] | None:
         def matches(item: dict[str, Any]) -> bool:
-            if item.get("phone_normalized") != phone_normalized:
+            if item.get('phone_normalized') != phone_normalized:
                 return False
             if not only_waiting_whatsapp:
                 return True
-            return item.get("business_status") == "waiting_whatsapp_reply"
+            return item.get('business_status') == 'waiting_whatsapp_reply'
 
         return self._update_request(matches, updates)
 
@@ -89,7 +91,7 @@ class LocalTestMemoryStore:
         updates: dict[str, Any],
     ) -> dict[str, Any] | None:
         return self._update_request(
-            lambda item: item.get("meta_message_id") == meta_message_id,
+            lambda item: item.get('meta_message_id') == meta_message_id,
             updates,
         )
 
@@ -119,14 +121,32 @@ class LocalTestMemoryStore:
         with self._lock:
             self._batch_realtime_profiles.pop(str(batch_id), None)
 
+    def store_supplier_discovery_run(
+        self,
+        search_id: str,
+        result_data: dict[str, Any],
+        *,
+        account_id: int | None = None,
+    ) -> None:
+        with self._lock:
+            self._supplier_discovery_runs[str(search_id)] = {
+                'account_id': account_id,
+                'result': deepcopy(result_data),
+            }
+
+    def get_supplier_discovery_run(self, search_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            item = self._supplier_discovery_runs.get(str(search_id))
+            return deepcopy(item) if item is not None else None
+
     def get_state(self) -> dict[str, Any]:
         with self._lock:
             return {
-                "recent_requests": deepcopy(self._test_requests),
-                "recent_whatsapp_sends": deepcopy(self._whatsapp_sends),
-                "logs": deepcopy(self._logs),
-                "last_webhook_payload": deepcopy(self._last_webhook_payload),
-                "last_webhook_event": deepcopy(self._last_webhook_event),
+                'recent_requests': deepcopy(self._test_requests),
+                'recent_whatsapp_sends': deepcopy(self._whatsapp_sends),
+                'logs': deepcopy(self._logs),
+                'last_webhook_payload': deepcopy(self._last_webhook_payload),
+                'last_webhook_event': deepcopy(self._last_webhook_event),
             }
 
     def _update_request(

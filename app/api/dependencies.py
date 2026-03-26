@@ -1,4 +1,6 @@
-from fastapi import Depends
+import secrets
+
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..core.config import get_settings
@@ -9,16 +11,32 @@ from ..repositories.validation_batch_repository import ValidationBatchRepository
 from ..services.call_simulator import CallSimulatorService
 from ..services.email_service import EmailService
 from ..services.local_test_flow_service import LocalTestFlowService
-from ..services.official_company_registry_service import (
-    OfficialCompanyRegistryService,
-)
+from ..services.official_company_registry_service import OfficialCompanyRegistryService
 from ..services.openai_realtime_bridge import OpenAIRealtimeBridgeService
 from ..services.platform_account_service import PlatformAccountService
+from ..services.supplier_discovery_service import SupplierDiscoveryService
 from ..services.twilio_voice_service import TwilioVoiceService
 from ..services.validation_async_service import ValidationAsyncService
 from ..services.validation_flow import ValidationFlowService
 from ..services.validation_snapshot_builder import ValidationSnapshotBuilder
 from ..services.whatsapp_service import WhatsAppService
+
+
+async def require_platform_admin_key(
+    x_platform_admin_key: str | None = Header(default=None, alias='X-Platform-Admin-Key'),
+) -> None:
+    settings = get_settings()
+    expected = settings.platform_admin_api_key
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='Management API indisponivel: PLATFORM_ADMIN_API_KEY nao configurada.',
+        )
+    if x_platform_admin_key is None or not secrets.compare_digest(x_platform_admin_key, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='X-Platform-Admin-Key invalida ou ausente.',
+        )
 
 
 async def get_platform_account_repository(
@@ -145,4 +163,15 @@ async def get_local_test_flow_service(
         call_simulator=call_simulator,
         whatsapp_service=whatsapp_service,
         verify_token=settings.meta_verify_token,
+    )
+
+
+async def get_supplier_discovery_service(
+    memory_store: LocalTestMemoryStore = Depends(get_local_test_memory_store),
+) -> SupplierDiscoveryService:
+    settings = get_settings()
+    return SupplierDiscoveryService(
+        memory_store=memory_store,
+        api_key=settings.openai_api_key,
+        model=settings.openai_supplier_discovery_model,
     )

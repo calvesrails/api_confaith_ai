@@ -57,6 +57,10 @@ class TwilioVoiceService:
         client_name: str,
         cnpj: str,
         phone_to_dial: str,
+        workflow_kind: str | None = None,
+        segment_name: str | None = None,
+        callback_phone: str | None = None,
+        callback_contact_name: str | None = None,
         from_phone_number_override: str | None = None,
         twiml_mode: TwimlMode = "media_stream",
         realtime_model_override: str | None = None,
@@ -90,6 +94,10 @@ class TwilioVoiceService:
             "cnpj": cnpj,
             "phone_dialed": twilio_to_phone,
             "twiml_mode": twiml_mode,
+            "workflow_kind": workflow_kind or "",
+            "segment_name": segment_name or "",
+            "callback_phone": callback_phone or "",
+            "callback_contact_name": callback_contact_name or "",
         }
         if realtime_model_override:
             twiml_query["realtime_model"] = realtime_model_override
@@ -273,6 +281,10 @@ class TwilioVoiceService:
         client_name: str,
         cnpj: str,
         phone_dialed: str,
+        workflow_kind: str | None = None,
+        segment_name: str | None = None,
+        callback_phone: str | None = None,
+        callback_contact_name: str | None = None,
         twiml_mode: TwimlMode = "media_stream",
         realtime_model: str | None = None,
         realtime_voice: str | None = None,
@@ -306,6 +318,10 @@ class TwilioVoiceService:
             "client_name": client_name,
             "cnpj": cnpj,
             "phone_dialed": self._format_e164(phone_dialed),
+            "workflow_kind": workflow_kind or "",
+            "segment_name": segment_name or "",
+            "callback_phone": callback_phone or "",
+            "callback_contact_name": callback_contact_name or "",
         }
         if realtime_model:
             parameters["realtime_model"] = realtime_model

@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...domain.statuses import WhatsAppStatus
 from ..base import Base
+from ..enum_types import FlexibleEnum
 
 if TYPE_CHECKING:
     from .validation_record import ValidationRecordModel
@@ -30,7 +31,7 @@ class WhatsAppMessageModel(Base):
     message_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[WhatsAppStatus] = mapped_column(
-        SqlEnum(WhatsAppStatus, native_enum=False)
+        FlexibleEnum(WhatsAppStatus)
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     responded_at: Mapped[datetime | None] = mapped_column(

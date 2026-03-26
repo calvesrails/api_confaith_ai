@@ -3,172 +3,251 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Teste Local de Fallback WhatsApp</title>
+    <title>Lab de Testes da API de Validacao</title>
     <link rel="stylesheet" href="/static/test_ui.css" />
   </head>
   <body>
-    <main class="page">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">Ambiente local</p>
-          <h1>Teste do fluxo de fallback via WhatsApp</h1>
+    <main class="page-shell">
+      <section class="hero-card">
+        <div class="hero-copy">
+          <span class="eyebrow">Ambiente de homologacao</span>
+          <h1>Lab operacional da API</h1>
           <p class="subtitle">
-            Use esta tela para testar ligacoes unitarias e em lote, acompanhar os
-            webhooks recebidos, importar uma planilha de validacao e observar a fila
-            assíncrona de chamadas da API.
+            Teste dois caminhos diferentes no mesmo painel: <strong>pesquisa de fornecedores sem ligacao</strong>
+            para gerar planilha de prospeccao e <strong>validacao por planilha com ligacao</strong> para usar
+            o fluxo real atual da API.
           </p>
-        </div>
-      </header>
-
-      <section class="panel form-panel">
-        <div class="panel-header">
-          <h2>Validacao em lote por planilha</h2>
-          <p>
-            Envie um arquivo <code>.xlsx</code> ou <code>.csv</code> com colunas como
-            <code>nome_cliente</code>, <code>cnpj</code> e <code>telefone</code>.
-            No modo de homologacao, a API aceita CNPJs estruturalmente validos no
-            snapshot inicial e processa uma ligacao por vez.
-          </p>
-        </div>
-
-        <form id="batch-validation-form" class="form-grid">
-          <label class="full-width">
-            <span>Planilha do lote</span>
-            <input id="batch_file" name="file" type="file" accept=".xlsx,.csv" required />
-          </label>
-
-          <div class="actions full-width">
-            <button type="submit" id="start-real-batch-call" class="primary">
-              Iniciar lote real
-            </button>
-            <button type="button" id="stop-real-batch-call" class="secondary" disabled>
-              Encerrar lote de teste
-            </button>
-            <button type="button" id="download-batch-results" class="secondary" disabled>
-              Baixar planilha de retorno
-            </button>
+          <div class="hero-pills">
+            <span class="hero-pill">Busca web com Responses API</span>
+            <span class="hero-pill hero-pill-secondary">Planilha com lote real</span>
+            <span class="hero-pill">Previews e webhooks no mesmo lugar</span>
           </div>
-        </form>
-      </section>
-
-      <section class="panel form-panel">
-        <div class="panel-header">
-          <h2>Perfil de voz Realtime</h2>
-          <p>Esses parametros valem so para os testes reais de ligacao na UI.</p>
         </div>
-
-        <div class="form-grid">
-          <label>
-            <span>Modelo de voz</span>
-            <select id="realtime_model" name="realtime_model">
-              <option value="gpt-realtime-1.5" selected>gpt-realtime-1.5</option>
-              <option value="gpt-realtime">gpt-realtime</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Voz</span>
-            <select id="realtime_voice" name="realtime_voice">
-              <option value="cedar" selected>cedar</option>
-              <option value="marin">marin</option>
-              <option value="coral">coral</option>
-              <option value="shimmer">shimmer</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Velocidade</span>
-            <input id="realtime_output_speed" name="realtime_output_speed" type="number" min="0.25" max="1.5" step="0.01" value="0.93" />
-          </label>
-
-          <label>
-            <span>Estilo</span>
-            <select id="realtime_style_profile" name="realtime_style_profile">
-              <option value="warm_feminine" selected>acolhedora feminina</option>
-              <option value="clear_professional">clara profissional</option>
-              <option value="calm_slow">calma pausada</option>
-              <option value="bright_friendly">amigavel leve</option>
-            </select>
-          </label>
+        <div class="hero-side">
+          <div class="hero-stat">
+            <span>Modo seguro</span>
+            <strong>Sem ligacao</strong>
+            <small>para descoberta de fornecedores</small>
+          </div>
+          <div class="hero-stat hero-stat-accent">
+            <span>Fluxo atual</span>
+            <strong>Com ligacao</strong>
+            <small>quando o lote vier de planilha</small>
+          </div>
         </div>
       </section>
 
-      <section class="panel form-panel">
-        <div class="panel-header">
-          <h2>Simular validacao</h2>
-          <p>Preencha os dados do cliente e escolha o cenario da ligacao.</p>
-        </div>
-
-        <form id="validation-form" class="form-grid">
-          <label>
-            <span>Nome da empresa</span>
-            <input
-              id="client_name"
-              name="client_name"
-              type="text"
-              value="Empresa Exemplo LTDA"
-              required
-            />
-          </label>
-
-          <label>
-            <span>CNPJ</span>
-            <input
-              id="cnpj"
-              name="cnpj"
-              type="text"
-              value="11.222.333/0001-81"
-              required
-            />
-          </label>
-
-          <label>
-            <span>Telefone</span>
-            <input
-              id="phone"
-              name="phone"
-              type="text"
-              value="11987654321"
-              required
-            />
-          </label>
-
-          <label>
-            <span>Cenario da ligacao</span>
-            <select id="call_scenario" name="call_scenario">
-              <option value="confirmed">confirmed</option>
-              <option value="failed" selected>failed</option>
-              <option value="inconclusive">inconclusive</option>
-              <option value="not_answered">not_answered</option>
-            </select>
-          </label>
-
-          <label class="full-width">
-            <span>Mensagem de fallback</span>
-            <textarea
-              id="fallback_message"
-              name="fallback_message"
-              rows="4"
-              required
-            >Ola, estamos validando o cadastro da empresa informada. Este numero pertence a empresa? Responda SIM ou NAO.</textarea>
-          </label>
-
-          <div class="actions full-width">
-            <button type="submit" class="primary">Simular validacao</button>
-            <button type="button" id="start-real-call" class="primary">
-              Iniciar ligacao real
-            </button>
-            <button type="button" id="start-diagnostic-call" class="secondary">
-              Teste diagnostico Twilio
-            </button>
-            <button type="button" id="send-whatsapp" class="secondary">
-              Enviar WhatsApp direto
-            </button>
-            <button type="button" id="clear-logs" class="ghost">
-              Limpar logs
-            </button>
+      <section class="workflow-grid two-columns">
+        <article class="panel spotlight-panel">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">Novo fluxo</p>
+              <h2>Pesquisar fornecedores na web</h2>
+            </div>
+            <span class="badge badge-safe">Sem ligacao</span>
           </div>
-        </form>
+          <p class="section-lead">
+            Informe o segmento e a regiao. A API pesquisa fornecedores, monta uma lista interna e devolve a planilha.
+            Esse fluxo <strong>nao dispara chamadas</strong> e existe so para homologacao e demonstracao.
+          </p>
+
+          <form id="supplier-discovery-form" class="form-grid">
+            <label>
+              <span>Segmento do fornecedor</span>
+              <input id="supplier_discovery_segment_name" name="segment_name" type="text" placeholder="Ex.: Adubo, malha de ferro, resina" required />
+            </label>
+
+            <label>
+              <span>Regiao ou cidade</span>
+              <input id="supplier_discovery_region" name="region" type="text" placeholder="Ex.: Sao Paulo, Ribeirao Preto, Brasil" />
+            </label>
+
+            <label>
+              <span>Telefone para retorno comercial</span>
+              <input id="supplier_discovery_callback_phone" name="callback_phone" type="text" placeholder="5511999999999" />
+            </label>
+
+            <label>
+              <span>Contato para retorno</span>
+              <input id="supplier_discovery_callback_contact_name" name="callback_contact_name" type="text" placeholder="Ex.: Comercial Agro Compras" />
+            </label>
+
+            <label>
+              <span>Quantidade maxima de fornecedores</span>
+              <input id="supplier_discovery_max_suppliers" name="max_suppliers" type="number" min="1" max="50" value="10" />
+            </label>
+
+            <div class="actions full-width">
+              <button type="submit" id="start-supplier-discovery" class="primary">Pesquisar fornecedores</button>
+              <button type="button" id="download-supplier-discovery-results" class="secondary" disabled>Baixar planilha da busca</button>
+            </div>
+          </form>
+
+          <div class="panel-subsection">
+            <div class="panel-header compact">
+              <div>
+                <h3>Resultado da busca</h3>
+                <p>Preview imediato da planilha que sera devolvida ao cliente.</p>
+              </div>
+            </div>
+            <div id="supplier-discovery-results-preview" class="table-wrapper empty-state">
+              Nenhuma busca executada ainda.
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">Fluxo existente</p>
+              <h2>Validacao por planilha com ligacao</h2>
+            </div>
+            <span class="badge badge-live">Com ligacao</span>
+          </div>
+          <p class="section-lead">
+            Aqui o lote continua funcionando como hoje. Se o cliente mandar a planilha manualmente,
+            a API cria o batch e dispara a fila de chamadas reais.
+          </p>
+
+          <form id="batch-validation-form" class="form-grid">
+            <label class="full-width">
+              <span>Empresa que a IA representa</span>
+              <input id="batch_caller_company_name" name="batch_caller_company_name" type="text" value="XPTO Validacao" placeholder="Ex.: Agro Compras Brasil" />
+            </label>
+
+            <label>
+              <span>Tipo do lote</span>
+              <select id="batch_workflow_kind" name="batch_workflow_kind">
+                <option value="cadastral_validation" selected>Validacao cadastral</option>
+                <option value="supplier_validation">Validacao de fornecedor</option>
+              </select>
+            </label>
+
+            <label id="supplier_segment_name_wrapper" hidden>
+              <span>Segmento do fornecedor</span>
+              <input id="supplier_segment_name" name="supplier_segment_name" type="text" placeholder="Ex.: Adubo" />
+            </label>
+
+            <label id="supplier_callback_phone_wrapper" hidden>
+              <span>Telefone para retorno comercial</span>
+              <input id="supplier_callback_phone" name="supplier_callback_phone" type="text" placeholder="5511999999999" />
+            </label>
+
+            <label id="supplier_callback_contact_name_wrapper" hidden class="full-width">
+              <span>Contato para retorno comercial</span>
+              <input id="supplier_callback_contact_name" name="supplier_callback_contact_name" type="text" placeholder="Ex.: Comercial Agro Compras" />
+            </label>
+
+            <p id="batch_workflow_help" class="section-hint full-width">
+              No lote cadastral, a planilha precisa de nome do cliente, CNPJ e telefone. O modo de homologacao ignora a consulta inicial da base oficial.
+            </p>
+
+            <label class="full-width upload-field">
+              <span>Planilha do lote</span>
+              <input id="batch_file" name="file" type="file" accept=".xlsx,.csv" required />
+            </label>
+
+            <div class="actions full-width">
+              <button type="submit" id="start-real-batch-call" class="primary">Iniciar lote real</button>
+              <button type="button" id="stop-real-batch-call" class="secondary" disabled>Encerrar lote de teste</button>
+              <button type="button" id="download-batch-results" class="ghost" disabled>Baixar planilha de retorno</button>
+            </div>
+          </form>
+        </article>
+      </section>
+
+      <section class="workflow-grid two-columns secondary-zone">
+        <article class="panel form-panel">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">Perfil de voz</p>
+              <h2>Parametros Realtime para ligacoes reais</h2>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label>
+              <span>Modelo de voz</span>
+              <select id="realtime_model" name="realtime_model">
+                <option value="gpt-realtime-1.5" selected>gpt-realtime-1.5</option>
+                <option value="gpt-realtime">gpt-realtime</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Voz</span>
+              <select id="realtime_voice" name="realtime_voice">
+                <option value="cedar" selected>cedar</option>
+                <option value="marin">marin</option>
+                <option value="coral">coral</option>
+                <option value="shimmer">shimmer</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Velocidade</span>
+              <input id="realtime_output_speed" name="realtime_output_speed" type="number" min="0.25" max="1.5" step="0.01" value="0.93" />
+            </label>
+
+            <label>
+              <span>Estilo</span>
+              <select id="realtime_style_profile" name="realtime_style_profile">
+                <option value="warm_feminine" selected>acolhedora feminina</option>
+                <option value="clear_professional">clara profissional</option>
+                <option value="calm_slow">calma pausada</option>
+                <option value="bright_friendly">amigavel leve</option>
+              </select>
+            </label>
+          </div>
+        </article>
+
+        <article class="panel form-panel">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">Simulacao local</p>
+              <h2>Simular validacao ou testar uma ligacao unica</h2>
+            </div>
+          </div>
+
+          <form id="validation-form" class="form-grid">
+            <label>
+              <span>Nome da empresa</span>
+              <input id="client_name" name="client_name" type="text" value="Empresa Exemplo LTDA" required />
+            </label>
+
+            <label>
+              <span>CNPJ</span>
+              <input id="cnpj" name="cnpj" type="text" value="11.222.333/0001-81" required />
+            </label>
+
+            <label>
+              <span>Telefone</span>
+              <input id="phone" name="phone" type="text" value="11987654321" required />
+            </label>
+
+            <label>
+              <span>Cenario da ligacao</span>
+              <select id="call_scenario" name="call_scenario">
+                <option value="confirmed">confirmed</option>
+                <option value="failed" selected>failed</option>
+                <option value="inconclusive">inconclusive</option>
+                <option value="not_answered">not_answered</option>
+              </select>
+            </label>
+
+            <label class="full-width">
+              <span>Mensagem de fallback</span>
+              <textarea id="fallback_message" name="fallback_message" rows="4" required>Ola, estamos validando o cadastro da empresa informada. Este numero pertence a empresa? Responda SIM ou NAO.</textarea>
+            </label>
+
+            <div class="actions full-width">
+              <button type="submit" class="primary">Simular validacao</button>
+              <button type="button" id="start-real-call" class="primary">Iniciar ligacao real</button>
+              <button type="button" id="start-diagnostic-call" class="secondary">Teste diagnostico Twilio</button>
+              <button type="button" id="send-whatsapp" class="ghost">Enviar WhatsApp direto</button>
+              <button type="button" id="clear-logs" class="ghost">Limpar logs</button>
+            </div>
+          </form>
+        </article>
       </section>
 
       <section class="metrics">
@@ -192,28 +271,28 @@
 
       <section class="content-grid">
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Payload enviado</h2>
           </div>
           <pre id="payload-preview" class="json-block">{}</pre>
         </article>
 
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Resposta da API</h2>
           </div>
           <pre id="response-preview" class="json-block">{}</pre>
         </article>
 
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Lote real em andamento</h2>
           </div>
           <pre id="live-batch-preview" class="json-block">{}</pre>
         </article>
 
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Transcricao da ligacao</h2>
             <p>Somente o que a API captou do cliente e do agente.</p>
           </div>
@@ -221,47 +300,44 @@
         </article>
 
         <article class="panel full-span">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Chamadas e retornos do lote</h2>
             <p>Log unico consolidado das tentativas, retornos e itens ainda na fila.</p>
           </div>
           <pre id="batch-call-log-preview" class="json-block batch-call-log">Nenhum lote carregado ainda.</pre>
         </article>
 
-
         <article class="panel full-span">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Registros do lote</h2>
             <p>Fila atual, status da ligacao e resultado por linha importada.</p>
           </div>
-          <div id="batch-records-preview" class="table-wrapper empty-state">
-            Nenhum lote carregado ainda.
-          </div>
+          <div id="batch-records-preview" class="table-wrapper empty-state">Nenhum lote carregado ainda.</div>
         </article>
 
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Historico local</h2>
           </div>
           <pre id="requests-preview" class="json-block">[]</pre>
         </article>
 
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Logs do fluxo</h2>
           </div>
           <pre id="logs-preview" class="json-block">[]</pre>
         </article>
 
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Envios para WhatsApp</h2>
           </div>
           <pre id="sends-preview" class="json-block">[]</pre>
         </article>
 
         <article class="panel">
-          <div class="panel-header">
+          <div class="panel-header compact">
             <h2>Ultimo webhook recebido</h2>
           </div>
           <pre id="webhook-preview" class="json-block">{}</pre>

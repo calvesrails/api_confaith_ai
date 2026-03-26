@@ -4,10 +4,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from app.schemas.email_delivery import EmailSendResult
+from app.services.email_service import EmailService
 from app.services.twilio_voice_service import TwilioCallDispatchResult, TwilioVoiceService
 
 pytestmark = pytest.mark.anyio
 
+ADMIN_HEADERS = {"X-Platform-Admin-Key": "test-platform-admin-key"}
 
 
 def build_external_record(external_id: str) -> dict:
@@ -23,6 +26,7 @@ def build_external_record(external_id: str) -> dict:
 async def create_ready_platform_account(client, *, external_account_id: str, company_name: str, spoken_company_name: str):
     account_response = await client.post(
         "/platform/accounts",
+        headers=ADMIN_HEADERS,
         json={
             "external_account_id": external_account_id,
             "company_name": company_name,
@@ -36,6 +40,7 @@ async def create_ready_platform_account(client, *, external_account_id: str, com
 
     twilio_response = await client.put(
         f"/platform/accounts/{account_id}/providers/twilio",
+        headers=ADMIN_HEADERS,
         json={
             "account_sid": f"AC{external_account_id[-4:]:0>4}",
             "auth_token": "twilio-secret",
@@ -60,6 +65,7 @@ async def create_ready_platform_account(client, *, external_account_id: str, com
 
     openai_response = await client.put(
         f"/platform/accounts/{account_id}/providers/openai",
+        headers=ADMIN_HEADERS,
         json={
             "api_key": "sk-account-openai-key",
             "realtime_model": "gpt-realtime-1.5",
@@ -72,6 +78,7 @@ async def create_ready_platform_account(client, *, external_account_id: str, com
 
     email_response = await client.put(
         f"/platform/accounts/{account_id}/providers/email",
+        headers=ADMIN_HEADERS,
         json={
             "enabled": True,
             "smtp_host": "smtp.example.com",
@@ -87,6 +94,7 @@ async def create_ready_platform_account(client, *, external_account_id: str, com
 
     token_response = await client.post(
         f"/platform/accounts/{account_id}/api-tokens",
+        headers=ADMIN_HEADERS,
         json={"name": "default"},
     )
     assert token_response.status_code == 201
@@ -103,6 +111,7 @@ async def test_platform_account_endpoints_create_and_mask_provider_configs(clien
 
     account_response = await client.get(
         f"/platform/accounts/{account_id}",
+        headers=ADMIN_HEADERS,
     )
 
     assert account_response.status_code == 200
@@ -121,9 +130,57 @@ async def test_platform_account_endpoints_create_and_mask_provider_configs(clien
     assert "***" in data["openai"]["api_key_masked"]
 
 
+async def test_creating_new_api_token_revokes_previous_token(client):
+    account_response = await client.post(
+        "/platform/accounts",
+        headers=ADMIN_HEADERS,
+        json={
+            "external_account_id": "rails_account_token_rotation",
+            "company_name": "Conta Token LTDA",
+            "spoken_company_name": "Conta Token",
+            "owner_name": "Caio Alves",
+            "owner_email": "caio@example.com",
+        },
+    )
+    assert account_response.status_code == 201
+    account_id = account_response.json()["id"]
+
+    first_token_response = await client.post(
+        f"/platform/accounts/{account_id}/api-tokens",
+        headers=ADMIN_HEADERS,
+        json={"name": "first-token"},
+    )
+    assert first_token_response.status_code == 201
+    first_raw_token = first_token_response.json()["raw_token"]
+
+    second_token_response = await client.post(
+        f"/platform/accounts/{account_id}/api-tokens",
+        headers=ADMIN_HEADERS,
+        json={"name": "second-token"},
+    )
+    assert second_token_response.status_code == 201
+    second_raw_token = second_token_response.json()["raw_token"]
+
+    first_auth_response = await client.get(
+        "/validations/batch_that_does_not_exist",
+        headers={"Authorization": f"Bearer {first_raw_token}"},
+    )
+    second_auth_response = await client.get(
+        "/validations/batch_that_does_not_exist",
+        headers={"Authorization": f"Bearer {second_raw_token}"},
+    )
+    account_snapshot = await client.get(f"/platform/accounts/{account_id}", headers=ADMIN_HEADERS)
+
+    assert first_auth_response.status_code == 401
+    assert second_auth_response.status_code == 404
+    assert account_snapshot.status_code == 200
+    assert account_snapshot.json()["active_api_tokens"] == 1
+
+
 async def test_external_token_with_naive_expiration_does_not_break_authentication(client):
     account_response = await client.post(
         "/platform/accounts",
+        headers=ADMIN_HEADERS,
         json={
             "external_account_id": "rails_account_naive_expiration",
             "company_name": "Conta Naive LTDA",
@@ -137,6 +194,7 @@ async def test_external_token_with_naive_expiration_does_not_break_authenticatio
 
     token_response = await client.post(
         f"/platform/accounts/{account_id}/api-tokens",
+        headers=ADMIN_HEADERS,
         json={
             "name": "naive-expiration",
             "expires_at": (datetime.utcnow() + timedelta(hours=1)).replace(microsecond=0).isoformat(),
@@ -417,3 +475,143 @@ async def test_list_external_batches_is_scoped_by_token(client, monkeypatch):
     assert list_response_b.status_code == 200
     data_b = list_response_b.json()
     assert [batch["batch_id"] for batch in data_b] == ["external_list_b_1"]
+
+
+async def test_mobile_dashboard_and_calls_are_scoped_by_token(client, monkeypatch):
+    monkeypatch.setattr(TwilioVoiceService, "is_configured", lambda self: False)
+
+    def fake_send_validation_fallback_email(self, **kwargs):
+        return EmailSendResult(
+            success=True,
+            provider_message_id="email_mobile_test",
+            subject="Validacao cadastral",
+            message_body="Mensagem de teste",
+        )
+
+    monkeypatch.setattr(
+        EmailService,
+        "send_validation_fallback_email",
+        fake_send_validation_fallback_email,
+    )
+
+    _, token_a = await create_ready_platform_account(
+        client,
+        external_account_id="rails_account_mobile_001",
+        company_name="Conta Mobile A LTDA",
+        spoken_company_name="Conta Mobile A",
+    )
+    _, token_b = await create_ready_platform_account(
+        client,
+        external_account_id="rails_account_mobile_002",
+        company_name="Conta Mobile B LTDA",
+        spoken_company_name="Conta Mobile B",
+    )
+
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    create_response = await client.post(
+        "/validations",
+        headers=headers_a,
+        json={
+            "batch_id": "mobile_dashboard_batch",
+            "source": "integracao_externa",
+            "records": [
+                build_external_record("1"),
+                build_external_record("2"),
+                build_external_record("3"),
+            ],
+        },
+    )
+    assert create_response.status_code == 202
+
+    confirmed_event = await client.post(
+        "/validations/mobile_dashboard_batch/records/1/call-events",
+        headers=headers_a,
+        json={
+            "provider_call_id": "CA_MOBILE_1",
+            "call_status": "answered",
+            "call_result": "confirmed",
+            "transcript_summary": "cliente: sim | agente: validacao concluida",
+            "duration_seconds": 22,
+        },
+    )
+    assert confirmed_event.status_code == 200
+
+    rejected_event = await client.post(
+        "/validations/mobile_dashboard_batch/records/2/call-events",
+        headers=headers_a,
+        json={
+            "provider_call_id": "CA_MOBILE_2",
+            "call_status": "answered",
+            "call_result": "rejected",
+            "transcript_summary": "cliente: nao e da empresa | agente: obrigada pela informacao",
+            "duration_seconds": 18,
+        },
+    )
+    assert rejected_event.status_code == 200
+
+    not_answered_event = await client.post(
+        "/validations/mobile_dashboard_batch/records/3/call-events",
+        headers=headers_a,
+        json={
+            "provider_call_id": "CA_MOBILE_3",
+            "call_status": "not_answered",
+            "call_result": "not_answered",
+            "transcript_summary": "Ligacao nao atendida.",
+            "duration_seconds": 0,
+        },
+    )
+    assert not_answered_event.status_code == 200
+
+    dashboard_unauthorized = await client.get("/mobile/dashboard?period=month")
+    assert dashboard_unauthorized.status_code == 401
+
+    dashboard_other_account = await client.get("/mobile/dashboard?period=month", headers=headers_b)
+    assert dashboard_other_account.status_code == 200
+    assert dashboard_other_account.json()["summary"]["total_batches"] == 0
+
+    dashboard_response = await client.get("/mobile/dashboard?period=month", headers=headers_a)
+    assert dashboard_response.status_code == 200
+    dashboard_data = dashboard_response.json()
+    assert dashboard_data["period"] == "month"
+    assert dashboard_data["summary"] == {
+        "total_batches": 1,
+        "completed_batches": 0,
+        "processing_batches": 1,
+        "total_records": 3,
+        "validated_phones": 1,
+        "confirmed_numbers": 1,
+        "not_confirmed_numbers": 1,
+        "not_answered_numbers": 1,
+        "average_call_duration_seconds": 20.0,
+        "average_call_cost_estimate_brl": 0.03,
+        "total_call_attempts": 3,
+    }
+    assert dashboard_data["confirmed_records"][0]["external_id"] == "1"
+    assert dashboard_data["confirmed_records"][0]["validated_phone"] == "5511987654321"
+    assert dashboard_data["not_confirmed_records"][0]["external_id"] == "2"
+    assert dashboard_data["not_answered_records"][0]["external_id"] == "3"
+
+    calls_response = await client.get("/mobile/calls?period=month", headers=headers_a)
+    assert calls_response.status_code == 200
+    calls_data = calls_response.json()
+    assert calls_data["period"] == "month"
+    assert calls_data["total"] == 3
+    assert [item["provider_call_id"] for item in calls_data["items"]] == [
+        "CA_MOBILE_3",
+        "CA_MOBILE_2",
+        "CA_MOBILE_1",
+    ]
+    assert calls_data["items"][0]["client_name"] == "Fornecedor 3 LTDA"
+    assert calls_data["items"][2]["phone_confirmed"] is True
+
+    calls_paginated = await client.get("/mobile/calls?period=month&limit=2&offset=1", headers=headers_a)
+    assert calls_paginated.status_code == 200
+    paginated_data = calls_paginated.json()
+    assert paginated_data["total"] == 3
+    assert len(paginated_data["items"]) == 2
+    assert [item["provider_call_id"] for item in paginated_data["items"]] == [
+        "CA_MOBILE_2",
+        "CA_MOBILE_1",
+    ]

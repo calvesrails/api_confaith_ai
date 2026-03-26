@@ -28,7 +28,13 @@ from ..schemas.platform_accounts import (
     TwilioProviderResponse,
 )
 from ..services.phone import normalize_phone
-from ..utils.security import generate_api_token, hash_api_token, mask_secret
+from ..utils.security import (
+    decrypt_provider_secret,
+    encrypt_provider_secret,
+    generate_api_token,
+    hash_api_token,
+    mask_secret,
+)
 
 
 def _utc_now() -> datetime:
@@ -63,6 +69,14 @@ class PlatformAccountRepository:
             select(PlatformAccountModel)
             .options(*self._account_load_options())
             .where(PlatformAccountModel.external_account_id == external_account_id)
+        )
+        return self.session.scalars(statement).first()
+
+    def get_latest_account(self) -> PlatformAccountModel | None:
+        statement = (
+            select(PlatformAccountModel)
+            .options(*self._account_load_options())
+            .order_by(PlatformAccountModel.created_at.desc(), PlatformAccountModel.id.desc())
         )
         return self.session.scalars(statement).first()
 
@@ -117,7 +131,7 @@ class PlatformAccountRepository:
             account.twilio_credential = credential
 
         credential.account_sid = payload.account_sid
-        credential.auth_token = payload.auth_token
+        credential.auth_token = encrypt_provider_secret(payload.auth_token)
         credential.webhook_base_url = payload.webhook_base_url
 
         new_phone_numbers: list[TwilioPhoneNumberModel] = []
@@ -147,7 +161,7 @@ class PlatformAccountRepository:
             credential = OpenAICredentialModel(platform_account_id=account.id)
             account.openai_credential = credential
 
-        credential.api_key = payload.api_key
+        credential.api_key = encrypt_provider_secret(payload.api_key)
         credential.realtime_model = payload.realtime_model
         credential.realtime_voice = payload.realtime_voice
         credential.realtime_output_speed = payload.realtime_output_speed
@@ -171,7 +185,7 @@ class PlatformAccountRepository:
         profile.smtp_host = payload.smtp_host
         profile.smtp_port = payload.smtp_port
         profile.smtp_username = payload.smtp_username
-        profile.smtp_password = payload.smtp_password
+        profile.smtp_password = encrypt_provider_secret(payload.smtp_password)
         profile.smtp_use_tls = payload.smtp_use_tls
         profile.from_address = payload.from_address
         profile.from_name = payload.from_name
@@ -187,6 +201,16 @@ class PlatformAccountRepository:
         name: str,
         expires_at: datetime | None,
     ) -> ApiTokenCreateResponse:
+        now = _utc_now()
+        for existing_token in account.api_tokens:
+            expires_at_utc = _ensure_utc(existing_token.expires_at)
+            if existing_token.revoked_at is not None:
+                continue
+            if expires_at_utc is not None and expires_at_utc <= now:
+                continue
+            existing_token.revoked_at = now
+            self.session.add(existing_token)
+
         generated_token = generate_api_token()
         token_model = ApiTokenModel(
             platform_account_id=account.id,
@@ -272,7 +296,9 @@ class PlatformAccountRepository:
         credential = account.openai_credential
         return OpenAIProviderResponse(
             configured=credential is not None,
-            api_key_masked=mask_secret(credential.api_key) if credential else None,
+            api_key_masked=(
+                mask_secret(decrypt_provider_secret(credential.api_key)) if credential else None
+            ),
             realtime_model=credential.realtime_model if credential else None,
             realtime_voice=credential.realtime_voice if credential else None,
             realtime_output_speed=credential.realtime_output_speed if credential else None,
@@ -292,7 +318,9 @@ class PlatformAccountRepository:
     def _count_active_tokens(self, account: PlatformAccountModel) -> int:
         now = _utc_now()
         return sum(
-            token.revoked_at is None and (token.expires_at is None or token.expires_at > now)
+            token.revoked_at is None and (
+                _ensure_utc(token.expires_at) is None or _ensure_utc(token.expires_at) > now
+            )
             for token in account.api_tokens
         )
 

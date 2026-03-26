@@ -29,6 +29,7 @@ from .email_service import EmailService
 from .official_company_registry_service import OfficialCompanyRegistryService
 from .phone import normalize_phone
 from ..utils.email import normalize_email
+from ..utils.security import decrypt_provider_secret
 from .twilio_voice_service import TwilioVoiceService, TwimlMode
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,40 @@ class ValidationAsyncService:
         self._clear_batch_realtime_profile(batch_id)
         return self.batch_repository.save_batch(batch_model)
 
+    def end_provider_call_for_batch(self, batch_id: str, provider_call_id: str) -> None:
+        logger.info(
+            "Solicitado encerramento da chamada do provedor para o lote | batch_id=%s provider_call_id=%s",
+            batch_id,
+            provider_call_id,
+        )
+        batch_model = self.batch_repository.get_batch_model(batch_id)
+        if batch_model is None:
+            logger.warning(
+                "Encerramento da chamada ignorado porque o lote nao foi encontrado | batch_id=%s provider_call_id=%s",
+                batch_id,
+                provider_call_id,
+            )
+            return
+
+        twilio_service = self._resolve_twilio_service_for_batch(batch_model)
+        if not twilio_service.is_configured():
+            logger.warning(
+                "Encerramento da chamada ignorado porque o Twilio nao esta configurado para o lote | batch_id=%s provider_call_id=%s",
+                batch_id,
+                provider_call_id,
+            )
+            return
+
+        try:
+            twilio_service.end_outbound_call(provider_call_id=provider_call_id)
+        except (ProviderConfigurationError, ProviderRequestError) as error:
+            logger.warning(
+                "Nao foi possivel encerrar a chamada do provedor apos a despedida | batch_id=%s provider_call_id=%s error=%s",
+                batch_id,
+                provider_call_id,
+                error,
+            )
+
     def register_call_event(
         self,
         batch_id: str,
@@ -237,10 +272,22 @@ class ValidationAsyncService:
                 if call_attempt.attempt_number > 1
                 else "voice_call"
             )
+            if getattr(record_model.batch, "workflow_kind", None) == "supplier_validation":
+                record_model.supplier_phone_belongs_to_company = True
+                record_model.supplier_supplies_segment = True
+                record_model.supplier_commercial_interest = True
+                record_model.supplier_callback_phone_informed = (
+                    record_model.supplier_callback_phone_informed
+                    or getattr(record_model.batch, "callback_phone", None)
+                )
             record_model.final_status = FinalStatus.VALIDATED
             record_model.observation = (
                 payload.observation
-                or "Numero confirmado por ligacao conversacional."
+                or (
+                    "Fornecedor qualificado por ligacao conversacional."
+                    if getattr(record_model.batch, "workflow_kind", None) == "supplier_validation"
+                    else "Numero confirmado por ligacao conversacional."
+                )
             )
         elif payload.call_result == CallResult.REJECTED:
             logger.info(
@@ -249,6 +296,32 @@ class ValidationAsyncService:
                 external_id,
                 call_attempt.attempt_number,
             )
+            if getattr(record_model.batch, "workflow_kind", None) == "supplier_validation":
+                normalized_observation = (payload.observation or "").strip().lower()
+                if "nao pertence a empresa" in normalized_observation:
+                    record_model.supplier_phone_belongs_to_company = False
+                elif "nao fornece o segmento" in normalized_observation:
+                    record_model.supplier_phone_belongs_to_company = True
+                    record_model.supplier_supplies_segment = False
+                elif "nao aceita retorno comercial" in normalized_observation:
+                    record_model.supplier_phone_belongs_to_company = True
+                    record_model.supplier_supplies_segment = True
+                    record_model.supplier_commercial_interest = False
+                record_model.supplier_callback_phone_informed = (
+                    record_model.supplier_callback_phone_informed
+                    or getattr(record_model.batch, "callback_phone", None)
+                )
+                record_model.technical_status = TechnicalStatus.COMPLETED
+                record_model.business_status = BusinessStatus.REJECTED_BY_CALL
+                record_model.whatsapp_status = WhatsAppStatus.NOT_REQUIRED
+                record_model.email_status = EmailStatus.NOT_REQUIRED
+                record_model.final_status = FinalStatus.VALIDATION_FAILED
+                record_model.observation = (
+                    payload.observation
+                    or "Fornecedor recusado na ligacao de qualificacao."
+                )
+                self._dispatch_next_pending_attempt(record_model.batch)
+                return self.batch_repository.save_record(record_model)
             if batch_stopped:
                 logger.warning(
                     "Lote interrompido manualmente; rejeicao nao acionara nova tentativa | batch_id=%s external_id=%s",
@@ -771,6 +844,10 @@ class ValidationAsyncService:
                 "client_name": record_model.client_name,
                 "cnpj": record_model.cnpj_normalized or record_model.cnpj_original,
                 "phone_to_dial": call_attempt.phone_dialed or record_model.phone_original,
+                "workflow_kind": getattr(record_model.batch, "workflow_kind", None),
+                "segment_name": getattr(record_model.batch, "segment_name", None),
+                "callback_phone": getattr(record_model.batch, "callback_phone", None),
+                "callback_contact_name": getattr(record_model.batch, "callback_contact_name", None),
                 "from_phone_number_override": resolved_from_phone_number,
                 "twiml_mode": twiml_mode,
             }
@@ -898,7 +975,7 @@ class ValidationAsyncService:
 
         return TwilioVoiceService(
             account_sid=twilio_credential.account_sid,
-            auth_token=twilio_credential.auth_token,
+            auth_token=decrypt_provider_secret(twilio_credential.auth_token),
             from_phone_number=default_from_phone,
             webhook_base_url=webhook_base_url,
         )

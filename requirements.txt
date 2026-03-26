@@ -11,3 +11,5 @@ pytest-asyncio
 python-dotenv
 websockets
 openpyxl
+cryptography
+psycopg[binary]

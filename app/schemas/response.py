@@ -17,6 +17,15 @@ from ..domain.statuses import (
 )
 
 
+class SupplierValidationDetails(BaseModel):
+    segment_name: str | None = None
+    phone_belongs_to_company: bool | None = None
+    supplies_segment: bool | None = None
+    commercial_interest: bool | None = None
+    callback_phone_informed: str | None = None
+    outcome: str | None = None
+
+
 class ValidationRecordResponse(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
@@ -54,6 +63,7 @@ class ValidationRecordResponse(BaseModel):
     official_registry_checked: bool = False
     official_registry_retry_found: bool = False
     official_registry_retry_phone: str | None = None
+    supplier_validation: SupplierValidationDetails | None = None
     final_status: FinalStatus
     observation: str | None = None
     call_attempts: list[CallAttemptResponse] = Field(default_factory=list)
@@ -133,6 +143,10 @@ class ValidationBatchResponse(BaseModel):
     account_id: int | None = None
     api_token_id: int | None = None
     caller_company_name: str | None = None
+    workflow_kind: str = "cadastral_validation"
+    segment_name: str | None = None
+    callback_phone: str | None = None
+    callback_contact_name: str | None = None
     source: str
     batch_status: BatchStatus
     processed_at: datetime

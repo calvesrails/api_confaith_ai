@@ -360,7 +360,7 @@ async def test_official_registry_retry_phone_is_not_retried_when_twilio_trial_re
     assert batch_data["summary"]["ready_for_retry_call"] == 0
 
 
-async def test_twilio_completed_after_answer_keeps_record_processing_until_media_stream_result(
+async def test_twilio_completed_after_answer_releases_queue_and_late_media_stream_can_still_override_result(
     client,
 ):
     payload = {
@@ -398,12 +398,14 @@ async def test_twilio_completed_after_answer_keeps_record_processing_until_media
 
     intermediate_batch_response = await client.get("/validations/lote_completed_after_answer")
     data = intermediate_batch_response.json()
-    assert data["batch_status"] == "processing"
-    assert data["result_ready"] is False
-    assert data["summary"]["pending_records"] == 1
-    assert data["records"][0]["final_status"] == "processing"
+    assert data["batch_status"] == "completed"
+    assert data["result_ready"] is True
+    assert data["summary"]["pending_records"] == 0
+    assert data["summary"]["failed_records"] == 1
+    assert data["records"][0]["final_status"] == "validation_failed"
     assert data["records"][0]["call_status"] == "answered"
-    assert data["records"][0]["business_status"] == "call_answered"
+    assert data["records"][0]["business_status"] == "inconclusive_call"
+    assert data["records"][0]["call_result"] == "inconclusive"
 
     final_response = await client.post(
         "/validations/lote_completed_after_answer/records/1/call-events",
@@ -926,3 +928,93 @@ async def test_test_batch_results_spreadsheet_download_returns_current_batch_sna
         "observation",
     ]
     assert emails_sheet.max_row == 1
+
+
+async def test_test_supplier_batch_voice_call_start_imports_xlsx_and_dispatches_first_record(client, monkeypatch):
+    monkeypatch.setattr(TwilioVoiceService, "is_configured", lambda self: True)
+
+    def fake_create_outbound_call(self, **kwargs) -> TwilioCallDispatchResult:
+        assert kwargs["workflow_kind"] == "supplier_validation"
+        assert kwargs["segment_name"] == "Adubo"
+        assert kwargs["callback_phone"] == "5511999999999"
+        return TwilioCallDispatchResult(
+            provider_call_id=f"CA_SUPPLIER_{kwargs['external_id']}",
+            provider_status="queued",
+            raw_payload={"sid": f"CA_SUPPLIER_{kwargs['external_id']}", "status": "queued"},
+        )
+
+    monkeypatch.setattr(TwilioVoiceService, "create_outbound_call", fake_create_outbound_call)
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["nome_fornecedor", "telefone"])
+    worksheet.append(["Fornecedor Adubo 1 LTDA", "11987654321"])
+    worksheet.append(["Fornecedor Adubo 2 LTDA", "11987654322"])
+
+    file_buffer = BytesIO()
+    workbook.save(file_buffer)
+    file_buffer.seek(0)
+
+    response = await client.post(
+        "/test/voice-call/supplier-batch/start?segment_name=Adubo&callback_phone=5511999999999&callback_contact_name=Comercial%20Agro",
+        files={
+            "file": (
+                "lote_fornecedor.xlsx",
+                file_buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workflow_kind"] == "supplier_validation"
+    assert data["segment_name"] == "Adubo"
+    assert data["callback_phone"] == "5511999999999"
+    assert data["records"][0]["supplier_validation"]["segment_name"] == "Adubo"
+    assert data["records"][0]["call_attempts"][0]["provider_call_id"] == "CA_SUPPLIER_2"
+
+
+async def test_supplier_rejected_call_does_not_queue_registry_retry_or_email_fallback(client):
+    payload = {
+        "batch_id": "supplier_rejected_batch",
+        "source": "web",
+        "segment_name": "Adubo",
+        "callback_phone": "5511999999999",
+        "records": [
+            {
+                "external_id": "1",
+                "supplier_name": "Fornecedor Adubo LTDA",
+                "phone": "11987654321",
+            }
+        ],
+    }
+
+    create_response = await client.post("/supplier-validations", json=payload)
+    assert create_response.status_code == 202
+
+    dispatch_response = await client.post("/validations/supplier_rejected_batch/dispatch")
+    assert dispatch_response.status_code == 200
+    provider_call_id = dispatch_response.json()["records"][0]["call_attempts"][0]["provider_call_id"]
+
+    event_response = await client.post(
+        "/validations/supplier_rejected_batch/records/1/call-events",
+        json={
+            "provider_call_id": provider_call_id,
+            "call_status": "answered",
+            "call_result": "rejected",
+            "transcript_summary": "cliente: Sim, esse numero e da empresa, mas nao trabalhamos com adubo. | agente: Obrigada pela informacao.",
+            "duration_seconds": 18,
+        },
+    )
+
+    assert event_response.status_code == 200
+    data = event_response.json()
+    assert data["final_status"] == "validation_failed"
+    assert data["business_status"] == "rejected_by_call"
+    assert len(data["call_attempts"]) == 1
+    assert data["official_registry_checked"] is False
+    assert data["email_history"] == []
+    assert data["supplier_validation"]["phone_belongs_to_company"] is True
+    assert data["supplier_validation"]["supplies_segment"] is False
+    assert data["supplier_validation"]["outcome"] == "does_not_supply_segment"

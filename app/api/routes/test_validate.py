@@ -12,21 +12,25 @@ from openpyxl import Workbook, load_workbook
 
 from ..dependencies import (
     get_local_test_flow_service,
+    get_supplier_discovery_service,
     get_validation_async_service,
     get_validation_flow_service,
 )
-from ...schemas.request import ValidationBatchRequest
+from ...schemas.request import SupplierValidationBatchRequest, ValidationBatchRequest
 from ...schemas.response import ValidationBatchResponse
 from ...schemas.test_flow import (
     ClearStateResponse,
     LocalTestFlowResponse,
     LocalTestStateResponse,
     LocalValidationRequest,
+    SupplierDiscoveryRequest,
+    SupplierDiscoveryResponse,
     ManualWhatsAppSendRequest,
     WhatsAppSendResult,
 )
 from ...services.errors import BatchNotFoundError
 from ...services.local_test_flow_service import LocalTestFlowService
+from ...services.supplier_discovery_service import SupplierDiscoveryService
 from ...services.validation_async_service import ValidationAsyncService
 from ...services.validation_flow import ValidationFlowService
 from ...services.validation_snapshot_builder import ValidationSnapshotBuilder
@@ -57,9 +61,13 @@ def _create_batch_for_test_ui(
     batch_request: ValidationBatchRequest,
     validation_flow_service: ValidationFlowService,
     skip_registry_validation: bool,
+    caller_company_name: str | None = None,
 ) -> ValidationBatchResponse:
     if not skip_registry_validation:
-        return validation_flow_service.create_batch(batch_request)
+        return validation_flow_service.create_batch(
+            batch_request,
+            caller_company_name=caller_company_name,
+        )
 
     test_snapshot_builder = ValidationSnapshotBuilder(
         official_company_registry=_BypassOfficialCompanyRegistryService(),
@@ -72,7 +80,10 @@ def _create_batch_for_test_ui(
         "Modo de homologacao do lote habilitado: consulta inicial da base oficial sera ignorada | batch_id=%s",
         batch_request.batch_id,
     )
-    return test_validation_flow_service.create_batch(batch_request)
+    return test_validation_flow_service.create_batch(
+        batch_request,
+        caller_company_name=caller_company_name,
+    )
 
 
 _BATCH_HEADER_ALIASES = {
@@ -92,6 +103,23 @@ _BATCH_HEADER_ALIASES = {
     "email": {"email", "e_mail", "correio_eletronico", "mail"},
 }
 
+
+
+
+_SUPPLIER_BATCH_HEADER_ALIASES = {
+    "external_id": {"external_id", "id_registro", "id", "registro"},
+    "supplier_name": {
+        "supplier_name",
+        "client_name",
+        "nome_fornecedor",
+        "nome_cliente",
+        "empresa",
+        "fornecedor",
+        "nome",
+    },
+    "phone": {"phone", "telefone", "celular", "fone", "whatsapp"},
+    "email": {"email", "e_mail", "correio_eletronico", "mail"},
+}
 
 def _normalize_header_name(value: Any) -> str:
     return "_".join(str(value or "").strip().lower().replace("-", " ").split())
@@ -213,6 +241,127 @@ def _parse_xlsx_records(file_bytes: bytes) -> list[dict[str, str]]:
 
 
 
+
+def _map_supplier_headers(headers: list[str]) -> dict[str, int]:
+    mapped_headers: dict[str, int] = {}
+
+    for index, header in enumerate(headers):
+        normalized_header = _normalize_header_name(header)
+        for field_name, aliases in _SUPPLIER_BATCH_HEADER_ALIASES.items():
+            if normalized_header in aliases and field_name not in mapped_headers:
+                mapped_headers[field_name] = index
+                break
+
+    missing_required_headers = [
+        field_name
+        for field_name in ("supplier_name", "phone")
+        if field_name not in mapped_headers
+    ]
+    if missing_required_headers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Planilha de fornecedor sem colunas obrigatorias. Encontradas: "
+                f"{headers}. Obrigatorias: supplier_name/nome_fornecedor e phone/telefone."
+            ),
+        )
+
+    return mapped_headers
+
+
+def _build_supplier_record_from_values(
+    row_values: list[str],
+    header_positions: dict[str, int],
+    row_number: int,
+) -> dict[str, str] | None:
+    if not any(value for value in row_values):
+        return None
+
+    def read(field_name: str) -> str:
+        index = header_positions.get(field_name)
+        if index is None or index >= len(row_values):
+            return ""
+        return row_values[index]
+
+    supplier_name = read("supplier_name")
+    phone = read("phone")
+    email = read("email")
+    external_id = read("external_id") or str(row_number)
+
+    if not supplier_name and not phone and not email:
+        return None
+
+    return {
+        "external_id": external_id,
+        "supplier_name": supplier_name,
+        "phone": phone,
+        "email": email,
+    }
+
+
+def _parse_supplier_csv_records(file_bytes: bytes) -> list[dict[str, str]]:
+    text_content = file_bytes.decode("utf-8-sig")
+    reader = csv.reader(io.StringIO(text_content))
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo CSV vazio.")
+
+    headers = [_normalize_cell_value(value) for value in rows[0]]
+    header_positions = _map_supplier_headers(headers)
+    records: list[dict[str, str]] = []
+    for row_number, row in enumerate(rows[1:], start=2):
+        row_values = [_normalize_cell_value(value) for value in row]
+        record = _build_supplier_record_from_values(row_values, header_positions, row_number)
+        if record is not None:
+            records.append(record)
+
+    return records
+
+
+def _parse_supplier_xlsx_records(file_bytes: bytes) -> list[dict[str, str]]:
+    workbook = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    try:
+        worksheet = workbook.active
+        rows = list(worksheet.iter_rows(values_only=True))
+    finally:
+        workbook.close()
+
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo XLSX vazio.")
+
+    headers = [_normalize_cell_value(value) for value in rows[0]]
+    header_positions = _map_supplier_headers(headers)
+    records: list[dict[str, str]] = []
+    for row_number, row in enumerate(rows[1:], start=2):
+        row_values = [_normalize_cell_value(value) for value in row]
+        record = _build_supplier_record_from_values(row_values, header_positions, row_number)
+        if record is not None:
+            records.append(record)
+
+    return records
+
+
+def _parse_supplier_records_from_upload(filename: str, file_bytes: bytes) -> list[dict[str, str]]:
+    lowered_name = filename.lower()
+    if lowered_name.endswith(".csv"):
+        records = _parse_supplier_csv_records(file_bytes)
+    elif lowered_name.endswith(".xlsx"):
+        records = _parse_supplier_xlsx_records(file_bytes)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formato nao suportado. Envie um arquivo .xlsx ou .csv.",
+        )
+
+    if not records:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nenhum registro valido foi encontrado na planilha de fornecedor.",
+        )
+
+    return records
+
+
 def _normalize_optional_text(value: str | None) -> str | None:
     if value is None:
         return None
@@ -250,6 +399,13 @@ def _build_batch_result_workbook(batch_snapshot: ValidationBatchResponse) -> byt
         "email_base_oficial",
         "email_fallback_utilizado",
         "status_email",
+        "workflow_kind",
+        "segmento_fornecedor",
+        "fornecedor_telefone_pertence_empresa",
+        "fornecedor_fornece_segmento",
+        "fornecedor_interesse_comercial",
+        "fornecedor_callback_phone",
+        "fornecedor_outcome",
         "telefone_validado",
         "ultimo_telefone_discado",
         "origem_ultimo_telefone",
@@ -289,6 +445,13 @@ def _build_batch_result_workbook(batch_snapshot: ValidationBatchResponse) -> byt
             record.official_registry_email,
             record.fallback_email_used,
             record.email_status,
+            batch_snapshot.workflow_kind,
+            (record.supplier_validation.segment_name if record.supplier_validation else batch_snapshot.segment_name),
+            _format_sheet_value(record.supplier_validation.phone_belongs_to_company if record.supplier_validation else None),
+            _format_sheet_value(record.supplier_validation.supplies_segment if record.supplier_validation else None),
+            _format_sheet_value(record.supplier_validation.commercial_interest if record.supplier_validation else None),
+            (record.supplier_validation.callback_phone_informed if record.supplier_validation else batch_snapshot.callback_phone),
+            (record.supplier_validation.outcome if record.supplier_validation else None),
             record.validated_phone,
             record.last_phone_dialed,
             record.last_phone_source,
@@ -399,6 +562,63 @@ def _build_batch_result_workbook(batch_snapshot: ValidationBatchResponse) -> byt
     workbook.save(buffer)
     return buffer.getvalue()
 
+
+
+def _build_supplier_discovery_workbook(search_result: SupplierDiscoveryResponse) -> bytes:
+    workbook = Workbook()
+
+    results_sheet = workbook.active
+    results_sheet.title = 'Fornecedores'
+    results_sheet.append([
+        'search_id',
+        'segment_name',
+        'region',
+        'supplier_name',
+        'phone',
+        'website',
+        'city',
+        'state',
+        'source_urls',
+        'discovery_confidence',
+        'notes',
+        'callback_phone',
+        'callback_contact_name',
+    ])
+
+    for supplier in search_result.suppliers:
+        results_sheet.append([
+            search_result.search_id,
+            search_result.segment_name,
+            search_result.region,
+            supplier.supplier_name,
+            supplier.phone,
+            supplier.website,
+            supplier.city,
+            supplier.state,
+            ' | '.join(supplier.source_urls),
+            supplier.discovery_confidence,
+            supplier.notes,
+            search_result.callback_phone,
+            search_result.callback_contact_name,
+        ])
+
+    summary_sheet = workbook.create_sheet(title='Resumo')
+    summary_sheet.append(['campo', 'valor'])
+    summary_sheet.append(['search_id', search_result.search_id])
+    summary_sheet.append(['mode', search_result.mode])
+    summary_sheet.append(['segment_name', search_result.segment_name])
+    summary_sheet.append(['region', search_result.region])
+    summary_sheet.append(['generated_at', _format_sheet_value(search_result.generated_at)])
+    summary_sheet.append(['total_suppliers', search_result.total_suppliers])
+    summary_sheet.append(['callback_phone', search_result.callback_phone])
+    summary_sheet.append(['callback_contact_name', search_result.callback_contact_name])
+    summary_sheet.append(['downloadable_file_url', search_result.downloadable_file_url])
+    summary_sheet.append(['message', search_result.message])
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
 def _parse_batch_records_from_upload(filename: str, file_bytes: bytes) -> list[dict[str, str]]:
     lowered_name = filename.lower()
     if lowered_name.endswith(".csv"):
@@ -419,6 +639,66 @@ def _parse_batch_records_from_upload(filename: str, file_bytes: bytes) -> list[d
 
     return records
 
+
+
+
+@router.post('/supplier-discovery/search', response_model=SupplierDiscoveryResponse)
+async def start_supplier_discovery_search(
+    payload: SupplierDiscoveryRequest,
+    service: SupplierDiscoveryService = Depends(get_supplier_discovery_service),
+) -> SupplierDiscoveryResponse:
+    logger.info(
+        'HTTP POST /test/supplier-discovery/search recebido | segment_name=%s region=%s max_suppliers=%s',
+        payload.segment_name,
+        payload.region,
+        payload.max_suppliers,
+    )
+    return await service.discover_suppliers(payload)
+
+
+@router.get('/supplier-discovery/{search_id}', response_model=SupplierDiscoveryResponse)
+async def get_supplier_discovery_search(
+    search_id: str,
+    service: SupplierDiscoveryService = Depends(get_supplier_discovery_service),
+) -> SupplierDiscoveryResponse:
+    logger.info(
+        'HTTP GET /test/supplier-discovery/{search_id} recebido | search_id=%s',
+        search_id,
+    )
+    search_result = service.get_discovery_result(search_id)
+    if search_result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Busca de fornecedores nao encontrada.',
+        )
+    return search_result
+
+
+@router.get('/supplier-discovery/{search_id}/results.xlsx')
+async def download_supplier_discovery_results(
+    search_id: str,
+    service: SupplierDiscoveryService = Depends(get_supplier_discovery_service),
+) -> StreamingResponse:
+    logger.info(
+        'HTTP GET /test/supplier-discovery/{search_id}/results.xlsx recebido | search_id=%s',
+        search_id,
+    )
+    search_result = service.get_discovery_result(search_id)
+    if search_result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Busca de fornecedores nao encontrada.',
+        )
+
+    workbook_bytes = _build_supplier_discovery_workbook(search_result)
+    filename = f'{search_id}_fornecedores_encontrados.xlsx'
+    return StreamingResponse(
+        io.BytesIO(workbook_bytes),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+        },
+    )
 
 @router.post("/validate", response_model=LocalTestFlowResponse)
 async def simulate_validation(
@@ -443,6 +723,7 @@ async def start_real_voice_call(
     realtime_voice: str | None = Query(default=None),
     realtime_output_speed: float | None = Query(default=None),
     realtime_style_profile: str | None = Query(default=None),
+    caller_company_name: str | None = Query(default=None),
     validation_flow_service: ValidationFlowService = Depends(get_validation_flow_service),
     validation_async_service: ValidationAsyncService = Depends(get_validation_async_service),
 ) -> ValidationBatchResponse:
@@ -492,6 +773,7 @@ async def start_real_voice_call_batch(
     realtime_voice: str | None = Query(default=None),
     realtime_output_speed: float | None = Query(default=None),
     realtime_style_profile: str | None = Query(default=None),
+    caller_company_name: str | None = Query(default=None),
     validation_flow_service: ValidationFlowService = Depends(get_validation_flow_service),
     validation_async_service: ValidationAsyncService = Depends(get_validation_async_service),
 ) -> ValidationBatchResponse:
@@ -518,6 +800,58 @@ async def start_real_voice_call_batch(
         batch_request=batch_request,
         validation_flow_service=validation_flow_service,
         skip_registry_validation=skip_registry_validation,
+        caller_company_name=_normalize_optional_text(caller_company_name),
+    )
+    return validation_async_service.dispatch_batch(
+        batch_id,
+        twiml_mode=twiml_mode,
+        realtime_model_override=_normalize_optional_text(realtime_model),
+        realtime_voice_override=_normalize_optional_text(realtime_voice),
+        realtime_output_speed_override=_normalize_optional_speed(realtime_output_speed),
+        realtime_style_profile=_normalize_optional_text(realtime_style_profile),
+    )
+
+
+
+
+@router.post("/voice-call/supplier-batch/start", response_model=ValidationBatchResponse)
+async def start_real_supplier_voice_call_batch(
+    file: UploadFile = File(...),
+    segment_name: str = Query(..., min_length=1),
+    callback_phone: str = Query(..., min_length=1),
+    callback_contact_name: str | None = Query(default=None),
+    twiml_mode: Literal["media_stream", "diagnostic_say"] = Query(default="media_stream"),
+    caller_company_name: str | None = Query(default=None),
+    realtime_model: str | None = Query(default=None),
+    realtime_voice: str | None = Query(default=None),
+    realtime_output_speed: float | None = Query(default=None),
+    realtime_style_profile: str | None = Query(default=None),
+    validation_flow_service: ValidationFlowService = Depends(get_validation_flow_service),
+    validation_async_service: ValidationAsyncService = Depends(get_validation_async_service),
+) -> ValidationBatchResponse:
+    batch_id = f"test_supplier_batch_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:6]}"
+    file_bytes = await file.read()
+    logger.info(
+        "HTTP POST /test/voice-call/supplier-batch/start recebido | batch_id=%s filename=%s twiml_mode=%s segment_name=%s",
+        batch_id,
+        file.filename,
+        twiml_mode,
+        segment_name,
+    )
+    records = _parse_supplier_records_from_upload(file.filename or "", file_bytes)
+    batch_request = SupplierValidationBatchRequest.model_validate(
+        {
+            "batch_id": batch_id,
+            "source": "web",
+            "segment_name": segment_name,
+            "callback_phone": callback_phone,
+            "callback_contact_name": callback_contact_name,
+            "records": records,
+        }
+    )
+    validation_flow_service.create_supplier_batch(
+        batch_request,
+        caller_company_name=_normalize_optional_text(caller_company_name),
     )
     return validation_async_service.dispatch_batch(
         batch_id,

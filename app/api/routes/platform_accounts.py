@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ..dependencies import get_platform_account_service
+from ..dependencies import get_platform_account_service, require_platform_admin_key
 from ...schemas.platform_accounts import (
     ApiTokenCreateRequest,
     ApiTokenCreateResponse,
@@ -22,11 +22,15 @@ from ...services.platform_account_service import PlatformAccountService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/platform/accounts", tags=["platform-accounts"])
+router = APIRouter(
+    prefix='/platform/accounts',
+    tags=['platform-accounts'],
+    dependencies=[Depends(require_platform_admin_key)],
+)
 
 
 @router.post(
-    "",
+    '',
     response_model=PlatformAccountResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -35,7 +39,7 @@ async def create_platform_account(
     service: PlatformAccountService = Depends(get_platform_account_service),
 ) -> PlatformAccountResponse:
     logger.info(
-        "HTTP POST /platform/accounts recebido | external_account_id=%s company_name=%s",
+        'HTTP POST /platform/accounts recebido | external_account_id=%s company_name=%s',
         payload.external_account_id,
         payload.company_name,
     )
@@ -43,7 +47,7 @@ async def create_platform_account(
 
 
 @router.get(
-    "/{account_id}",
+    '/{account_id}',
     response_model=PlatformAccountResponse,
     status_code=status.HTTP_200_OK,
 )
@@ -58,7 +62,7 @@ async def get_platform_account(
 
 
 @router.put(
-    "/{account_id}/company-profile",
+    '/{account_id}/company-profile',
     response_model=PlatformAccountResponse,
     status_code=status.HTTP_200_OK,
 )
@@ -74,7 +78,7 @@ async def update_company_profile(
 
 
 @router.put(
-    "/{account_id}/providers/twilio",
+    '/{account_id}/providers/twilio',
     response_model=PlatformAccountResponse,
     status_code=status.HTTP_200_OK,
 )
@@ -92,7 +96,7 @@ async def update_twilio_provider(
 
 
 @router.put(
-    "/{account_id}/providers/openai",
+    '/{account_id}/providers/openai',
     response_model=PlatformAccountResponse,
     status_code=status.HTTP_200_OK,
 )
@@ -108,7 +112,7 @@ async def update_openai_provider(
 
 
 @router.put(
-    "/{account_id}/providers/email",
+    '/{account_id}/providers/email',
     response_model=PlatformAccountResponse,
     status_code=status.HTTP_200_OK,
 )
@@ -124,7 +128,7 @@ async def update_email_provider(
 
 
 @router.post(
-    "/{account_id}/api-tokens",
+    '/{account_id}/api-tokens',
     response_model=ApiTokenCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )

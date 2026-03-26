@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...domain.statuses import CallPhoneSource, CallResult, CallStatus
 from ..base import Base
+from ..enum_types import FlexibleEnum
 
 if TYPE_CHECKING:
     from .validation_record import ValidationRecordModel
@@ -30,14 +31,14 @@ class CallAttemptModel(Base):
     phone_dialed: Mapped[str | None] = mapped_column(String(20), nullable=True)
     from_phone_number_used: Mapped[str | None] = mapped_column(String(20), nullable=True)
     phone_source: Mapped[CallPhoneSource] = mapped_column(
-        SqlEnum(CallPhoneSource, native_enum=False),
+        FlexibleEnum(CallPhoneSource),
         default=CallPhoneSource.PAYLOAD_PHONE,
     )
     status: Mapped[CallStatus] = mapped_column(
-        SqlEnum(CallStatus, native_enum=False)
+        FlexibleEnum(CallStatus)
     )
     result: Mapped[CallResult] = mapped_column(
-        SqlEnum(CallResult, native_enum=False)
+        FlexibleEnum(CallResult)
     )
     transcript_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     sentiment: Mapped[str | None] = mapped_column(String(40), nullable=True)

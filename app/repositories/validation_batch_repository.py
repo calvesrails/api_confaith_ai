@@ -14,12 +14,14 @@ from ..domain.statuses import (
     BusinessStatus,
     CallPhoneSource,
     CallResult,
+    CallStatus,
     FinalStatus,
     TechnicalStatus,
 )
 from ..schemas.response import (
     CallAttemptResponse,
     EmailMessageResponse,
+    SupplierValidationDetails,
     ValidationBatchResponse,
     ValidationBatchSummary,
     ValidationRecordResponse,
@@ -116,6 +118,22 @@ class ValidationBatchRepository:
         batch_models = self.session.scalars(statement).all()
         return [self.build_batch_response(batch_model) for batch_model in batch_models]
 
+    def list_batch_models_for_account(
+        self,
+        *,
+        account_id: int | None,
+        batch_status: BatchStatus | None = None,
+        source: str | None = None,
+    ) -> list[ValidationBatchModel]:
+        statement = self._base_batch_statement().order_by(ValidationBatchModel.created_at.desc())
+        if account_id is not None:
+            statement = statement.where(ValidationBatchModel.platform_account_id == account_id)
+        if source is not None:
+            statement = statement.where(ValidationBatchModel.source == source)
+        if batch_status is not None:
+            statement = statement.where(ValidationBatchModel.batch_status == batch_status)
+        return self.session.scalars(statement).all()
+
     def create_from_snapshot(
         self, snapshot: ValidationBatchResponse
     ) -> ValidationBatchResponse:
@@ -134,6 +152,10 @@ class ValidationBatchRepository:
             platform_account_id=snapshot.account_id,
             api_token_id=snapshot.api_token_id,
             caller_company_name=snapshot.caller_company_name,
+            workflow_kind=snapshot.workflow_kind,
+            segment_name=snapshot.segment_name,
+            callback_phone=snapshot.callback_phone,
+            callback_contact_name=snapshot.callback_contact_name,
             source=snapshot.source,
             batch_status=snapshot.batch_status,
             technical_status=snapshot.technical_status,
@@ -169,6 +191,10 @@ class ValidationBatchRepository:
                     email_status=record.email_status,
                     phone_confirmed=record.phone_confirmed,
                     confirmation_source=record.confirmation_source,
+                    supplier_phone_belongs_to_company=(record.supplier_validation.phone_belongs_to_company if record.supplier_validation else None),
+                    supplier_supplies_segment=(record.supplier_validation.supplies_segment if record.supplier_validation else None),
+                    supplier_commercial_interest=(record.supplier_validation.commercial_interest if record.supplier_validation else None),
+                    supplier_callback_phone_informed=(record.supplier_validation.callback_phone_informed if record.supplier_validation else None),
                     final_status=record.final_status,
                     observation=record.observation,
                 )
@@ -298,6 +324,10 @@ class ValidationBatchRepository:
             account_id=batch_model.platform_account_id,
             api_token_id=batch_model.api_token_id,
             caller_company_name=batch_model.caller_company_name,
+            workflow_kind=batch_model.workflow_kind,
+            segment_name=batch_model.segment_name,
+            callback_phone=batch_model.callback_phone,
+            callback_contact_name=batch_model.callback_contact_name,
             source=batch_model.source,
             batch_status=batch_model.batch_status,
             processed_at=batch_model.updated_at,
@@ -341,12 +371,38 @@ class ValidationBatchRepository:
                 for attempt in record.call_attempts
             ]
         )
+        supplier_validation = self._build_supplier_validation_response(record)
+        is_supplier_validation = (
+            getattr(record.batch, "workflow_kind", "cadastral_validation")
+            == "supplier_validation"
+        )
         official_registry_checked = (
-            registry_attempt is not None
-            or record.business_status in {
-                BusinessStatus.READY_FOR_RETRY_CALL,
-                BusinessStatus.REJECTED_BY_CALL,
-            }
+            False
+            if is_supplier_validation
+            else (
+                registry_attempt is not None
+                or record.business_status in {
+                    BusinessStatus.READY_FOR_RETRY_CALL,
+                    BusinessStatus.REJECTED_BY_CALL,
+                }
+            )
+        )
+        official_registry_retry_found = registry_attempt is not None and not is_supplier_validation
+        official_registry_retry_phone = (
+            registry_attempt.phone_dialed if official_registry_retry_found else None
+        )
+        validated_phone = (
+            (confirmed_attempt.phone_dialed if confirmed_attempt else None)
+            or (
+                (
+                    last_attempt.phone_dialed
+                    if last_attempt is not None
+                    else (record.phone_normalized or record.phone_original)
+                )
+                if supplier_validation is not None
+                and supplier_validation.phone_belongs_to_company is True
+                else None
+            )
         )
 
         return ValidationRecordResponse(
@@ -376,7 +432,7 @@ class ValidationBatchRepository:
             email_status=record.email_status,
             phone_confirmed=record.phone_confirmed,
             confirmation_source=record.confirmation_source,
-            validated_phone=(confirmed_attempt.phone_dialed if confirmed_attempt else None),
+            validated_phone=validated_phone,
             last_phone_dialed=(
                 last_attempt.phone_dialed
                 if last_attempt is not None
@@ -386,8 +442,9 @@ class ValidationBatchRepository:
             attempted_phones=attempted_phones,
             attempts_count=len(record.call_attempts),
             official_registry_checked=official_registry_checked,
-            official_registry_retry_found=registry_attempt is not None,
-            official_registry_retry_phone=(registry_attempt.phone_dialed if registry_attempt else None),
+            official_registry_retry_found=official_registry_retry_found,
+            official_registry_retry_phone=official_registry_retry_phone,
+            supplier_validation=supplier_validation,
             final_status=record.final_status,
             observation=record.observation,
             call_attempts=call_attempts,
@@ -441,6 +498,54 @@ class ValidationBatchRepository:
             started_at=attempt.started_at,
             finished_at=attempt.finished_at,
             observation=attempt.observation,
+        )
+
+    def _build_supplier_validation_response(
+        self, record: ValidationRecordModel
+    ) -> SupplierValidationDetails | None:
+        is_supplier_validation = (
+            getattr(record.batch, "workflow_kind", "cadastral_validation")
+            == "supplier_validation"
+        )
+        if (
+            not is_supplier_validation
+            and record.supplier_phone_belongs_to_company is None
+            and record.supplier_supplies_segment is None
+            and record.supplier_commercial_interest is None
+            and record.supplier_callback_phone_informed is None
+        ):
+            return None
+
+        outcome = None
+        if record.supplier_phone_belongs_to_company is False:
+            outcome = "wrong_company"
+        elif record.supplier_supplies_segment is False:
+            outcome = "does_not_supply_segment"
+        elif record.supplier_commercial_interest is False:
+            outcome = "not_interested"
+        elif record.final_status == FinalStatus.VALIDATED:
+            outcome = "qualified_supplier"
+        elif (
+            record.call_status == CallStatus.NOT_ANSWERED
+            or record.call_result == CallResult.NOT_ANSWERED
+        ):
+            outcome = "not_answered"
+        elif (
+            record.business_status == BusinessStatus.INCONCLUSIVE_CALL
+            or record.call_result == CallResult.INCONCLUSIVE
+        ):
+            outcome = "inconclusive"
+
+        return SupplierValidationDetails(
+            segment_name=getattr(record.batch, "segment_name", None),
+            phone_belongs_to_company=record.supplier_phone_belongs_to_company,
+            supplies_segment=record.supplier_supplies_segment,
+            commercial_interest=record.supplier_commercial_interest,
+            callback_phone_informed=(
+                record.supplier_callback_phone_informed
+                or getattr(record.batch, "callback_phone", None)
+            ),
+            outcome=outcome,
         )
 
     def _build_summary(

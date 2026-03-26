@@ -20,11 +20,13 @@ from .models import (
 )
 
 _settings = get_settings()
-_connect_args = {"check_same_thread": False} if _settings.database_url.startswith(
-    "sqlite"
-) else {}
+_is_sqlite = _settings.database_url.startswith("sqlite")
+_connect_args = {"check_same_thread": False} if _is_sqlite else {}
+_engine_kwargs = {"pool_pre_ping": True}
+if _connect_args:
+    _engine_kwargs["connect_args"] = _connect_args
 
-engine = create_engine(_settings.database_url, connect_args=_connect_args)
+engine = create_engine(_settings.database_url, **_engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
@@ -33,6 +35,10 @@ _VALIDATION_RECORD_COLUMN_MIGRATIONS = {
     "email_normalized": "VARCHAR(320)",
     "official_registry_email": "VARCHAR(320)",
     "email_status": "VARCHAR(40) DEFAULT 'not_required'",
+    "supplier_phone_belongs_to_company": "BOOLEAN",
+    "supplier_supplies_segment": "BOOLEAN",
+    "supplier_commercial_interest": "BOOLEAN",
+    "supplier_callback_phone_informed": "VARCHAR(32)",
 }
 
 _VALIDATION_BATCH_COLUMN_MIGRATIONS = {
@@ -40,6 +46,10 @@ _VALIDATION_BATCH_COLUMN_MIGRATIONS = {
     "api_token_id": "INTEGER",
     "caller_company_name": "VARCHAR(255)",
     "public_batch_id": "VARCHAR(120)",
+    "workflow_kind": "VARCHAR(40) DEFAULT 'cadastral_validation'",
+    "segment_name": "VARCHAR(120)",
+    "callback_phone": "VARCHAR(32)",
+    "callback_contact_name": "VARCHAR(120)",
 }
 
 _CALL_ATTEMPT_COLUMN_MIGRATIONS = {

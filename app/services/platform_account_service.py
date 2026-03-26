@@ -46,6 +46,12 @@ class PlatformAccountService:
             raise PlatformAccountNotFoundError(account_id)
         return self.repository.build_account_response(account)
 
+    def get_latest_account(self) -> PlatformAccountResponse | None:
+        account = self.repository.get_latest_account()
+        if account is None:
+            return None
+        return self.repository.build_account_response(account)
+
     def update_company_profile(
         self,
         account_id: int,

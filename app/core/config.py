@@ -17,7 +17,15 @@ class Settings(BaseSettings):
         default=None,
         alias="PLATFORM_ADMIN_API_KEY",
     )
+    secret_encryption_key: str | None = Field(
+        default=None,
+        alias="SECRET_ENCRYPTION_KEY",
+    )
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_supplier_discovery_model: str = Field(
+        default="gpt-4.1-mini",
+        alias="OPENAI_SUPPLIER_DISCOVERY_MODEL",
+    )
     openai_realtime_model: str = Field(
         default="gpt-realtime-1.5",
         alias="OPENAI_REALTIME_MODEL",
@@ -52,8 +60,10 @@ class Settings(BaseSettings):
     )
     openai_realtime_transcription_prompt: str | None = Field(
         default=(
-            "Portugues do Brasil em chamada telefonica de validacao cadastral. "
-            "Priorize respostas curtas e literais, especialmente: sim, nao, e da empresa, nao e da empresa, numero errado, continua sendo."
+            "Portugues do Brasil em chamada telefonica de validacao cadastral e qualificacao de fornecedor. "
+            "Priorize transcricao literal de respostas curtas e objetivas de telefone. "
+            "Expressoes importantes: sim, nao, pertence sim, sim pertence, pertencem, e da empresa, nao e da empresa, numero errado, continua sendo, certo, certeza, com certeza. "
+            "Evite trocar afirmacoes curtas por elogios ou reformulacoes como perfeito ou perfeitissimo quando o atendente estiver confirmando se o contato pertence a empresa."
         ),
         alias="OPENAI_REALTIME_TRANSCRIPTION_PROMPT",
     )

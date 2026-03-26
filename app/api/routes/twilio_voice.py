@@ -40,6 +40,10 @@ async def get_twiml_for_call(
             client_name=query.get("client_name", "Cliente sem nome"),
             cnpj=query.get("cnpj", ""),
             phone_dialed=query.get("phone_dialed", ""),
+            workflow_kind=query.get("workflow_kind"),
+            segment_name=query.get("segment_name"),
+            callback_phone=query.get("callback_phone"),
+            callback_contact_name=query.get("callback_contact_name"),
             twiml_mode=twiml_mode,
             realtime_model=query.get("realtime_model"),
             realtime_voice=query.get("realtime_voice"),
@@ -112,13 +116,23 @@ async def bridge_twilio_media_stream(
         return
 
     logger.info(
-        "Resultado final do media stream | batch_id=%s external_id=%s provider_call_id=%s call_status=%s call_result=%s",
+        "Resultado final do media stream | batch_id=%s external_id=%s provider_call_id=%s call_status=%s call_result=%s terminate_provider_call=%s",
         bridge_result.batch_id,
         bridge_result.external_id,
         bridge_result.provider_call_id,
         bridge_result.call_status,
         bridge_result.call_result,
+        bridge_result.terminate_provider_call,
     )
+    if (
+        bridge_result.batch_id
+        and bridge_result.provider_call_id
+        and bridge_result.terminate_provider_call
+    ):
+        validation_service.end_provider_call_for_batch(
+            bridge_result.batch_id,
+            bridge_result.provider_call_id,
+        )
     if (
         bridge_result.batch_id
         and bridge_result.external_id
