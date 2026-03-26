@@ -16,9 +16,10 @@ __pycache__/
 # Test / tooling
 .pytest_cache/
 .mypy_cache/
+contact_validation.db
+tests/test_contact_validation.db
 
 # OS / editor
 .DS_Store
 .vscode/
 .idea/
-tests/test_supplier_validation.db

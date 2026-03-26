@@ -10,6 +10,6 @@ async def test_health_check_returns_service_metadata(client):
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "service": "Supplier Validation API",
+        "service": "Client Contact Validation API",
         "version": "0.1.0",
     }

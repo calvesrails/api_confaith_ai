@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Homologacao da API de Validacao</title>
+    <link rel="stylesheet" href="/static/platform_api_ui.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Painel de homologacao</p>
+          <h1>Fluxo da API ponta a ponta</h1>
+          <p class="subtitle">
+            Esta tela simula os modulos do painel web para testar a API inteira:
+            criar conta, configurar Twilio, OpenAI e e-mail, gerar token,
+            enviar lote e consultar o resultado final.
+          </p>
+        </div>
+        <div class="hero-badge">
+          <span>Rotas alvo</span>
+          <strong>/platform/accounts + /validations</strong>
+        </div>
+      </header>
+
+      <section class="panel session-panel">
+        <div class="panel-header">
+          <h2>Contexto da sessao</h2>
+          <p>
+            Esses campos ficam salvos no navegador para facilitar seus testes.
+          </p>
+        </div>
+
+        <div class="module-grid context-grid">
+          <label>
+            <span>Chave admin da plataforma</span>
+            <input id="platform_admin_key" type="password" placeholder="X-Platform-Admin-Key" />
+          </label>
+
+          <label>
+            <span>Account ID</span>
+            <input id="account_id" type="number" min="1" placeholder="Ex.: 1" />
+          </label>
+
+          <label>
+            <span>Bearer token</span>
+            <input id="bearer_token" type="text" placeholder="tkn_live_..." />
+          </label>
+
+          <label>
+            <span>Batch ID atual</span>
+            <input id="current_batch_id" type="text" placeholder="erp_lote_..." />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="save-session" class="primary">Salvar sessao local</button>
+          <button type="button" id="clear-session" class="ghost">Limpar sessao local</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Guia rapido</h2>
+          <p>A ordem recomendada para testar tudo no navegador.</p>
+        </div>
+        <ol class="step-list">
+          <li>Testar <code>GET /health</code>.</li>
+          <li>Criar a conta operacional.</li>
+          <li>Configurar Twilio.</li>
+          <li>Configurar OpenAI.</li>
+          <li>Configurar e-mail, se quiser fallback.</li>
+          <li>Gerar o token.</li>
+          <li>Enviar um lote.</li>
+          <li>Consultar o lote ate o resultado final.</li>
+        </ol>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Modulos de configuracao</h2>
+          <p>Cada modulo abaixo chama diretamente um endpoint da API.</p>
+        </div>
+
+        <div class="module-grid">
+          <article class="module-card">
+            <h3>Health</h3>
+            <p>Verifica se a API esta respondendo.</p>
+            <div class="actions compact-actions">
+              <button type="button" id="check-health" class="primary">Testar /health</button>
+            </div>
+          </article>
+
+          <article class="module-card">
+            <h3>Criar conta</h3>
+            <form id="create-account-form" class="module-form">
+              <label>
+                <span>External Account ID</span>
+                <input name="external_account_id" type="text" value="cliente_123" />
+              </label>
+              <label>
+                <span>Company name</span>
+                <input name="company_name" type="text" value="XPTO Cobrancas LTDA" required />
+              </label>
+              <label>
+                <span>Spoken company name</span>
+                <input name="spoken_company_name" type="text" value="XPTO Validacao" />
+              </label>
+              <label>
+                <span>Owner name</span>
+                <input name="owner_name" type="text" value="Caio Alves" />
+              </label>
+              <label>
+                <span>Owner email</span>
+                <input name="owner_email" type="email" value="caio@xpto.com" />
+              </label>
+              <div class="actions compact-actions">
+                <button type="submit" class="primary">Criar conta</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="module-card">
+            <h3>Consultar conta</h3>
+            <p>Busca o estado atual da conta operacional.</p>
+            <div class="actions compact-actions">
+              <button type="button" id="fetch-account" class="secondary">Buscar conta</button>
+            </div>
+          </article>
+
+          <article class="module-card">
+            <h3>Perfil da empresa</h3>
+            <form id="company-profile-form" class="module-form">
+              <label>
+                <span>Company name</span>
+                <input name="company_name" type="text" value="XPTO Cobrancas LTDA" required />
+              </label>
+              <label>
+                <span>Spoken company name</span>
+                <input name="spoken_company_name" type="text" value="XPTO Validacao" />
+              </label>
+              <label>
+                <span>Owner name</span>
+                <input name="owner_name" type="text" value="Caio Alves" />
+              </label>
+              <label>
+                <span>Owner email</span>
+                <input name="owner_email" type="email" value="caio@xpto.com" />
+              </label>
+              <div class="actions compact-actions">
+                <button type="submit" class="primary">Salvar perfil</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="module-card module-card-wide">
+            <h3>Twilio</h3>
+            <form id="twilio-form" class="module-form">
+              <label>
+                <span>Account SID</span>
+                <input name="account_sid" type="text" placeholder="AC..." required />
+              </label>
+              <label>
+                <span>Auth Token</span>
+                <input name="auth_token" type="password" placeholder="twilio-secret" required />
+              </label>
+              <label>
+                <span>Webhook base URL</span>
+                <input name="webhook_base_url" type="text" placeholder="https://api.exemplo.com" />
+              </label>
+              <label class="full-width">
+                <span>Phone numbers (JSON array)</span>
+                <textarea id="twilio_phone_numbers" rows="8">[
+  {
+    "phone_number": "13527176703",
+    "friendly_name": "Linha principal",
+    "is_active": true,
+    "max_concurrent_calls": 1
+  },
+  {
+    "phone_number": "13527176704",
+    "friendly_name": "Linha secundaria",
+    "is_active": true,
+    "max_concurrent_calls": 1
+  }
+]</textarea>
+              </label>
+              <div class="actions compact-actions">
+                <button type="button" id="load-twilio-sample" class="ghost">Carregar exemplo</button>
+                <button type="submit" class="primary">Salvar Twilio</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="module-card">
+            <h3>OpenAI</h3>
+            <form id="openai-form" class="module-form">
+              <label>
+                <span>API key</span>
+                <input name="api_key" type="password" placeholder="sk-..." required />
+              </label>
+              <label>
+                <span>Realtime model</span>
+                <input name="realtime_model" type="text" value="gpt-realtime-1.5" required />
+              </label>
+              <label>
+                <span>Realtime voice</span>
+                <input name="realtime_voice" type="text" value="cedar" required />
+              </label>
+              <label>
+                <span>Realtime output speed</span>
+                <input name="realtime_output_speed" type="number" min="0.25" max="1.5" step="0.01" value="0.93" />
+              </label>
+              <label class="full-width">
+                <span>Realtime style instructions</span>
+                <textarea name="realtime_style_instructions" rows="5">Fale com tom acolhedor e natural, com diccao clara e ritmo de telefonia.</textarea>
+              </label>
+              <div class="actions compact-actions">
+                <button type="submit" class="primary">Salvar OpenAI</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="module-card">
+            <h3>E-mail</h3>
+            <form id="email-form" class="module-form">
+              <label class="checkbox-row">
+                <input name="enabled" type="checkbox" checked />
+                <span>Habilitar fallback por e-mail</span>
+              </label>
+              <label>
+                <span>SMTP host</span>
+                <input name="smtp_host" type="text" placeholder="smtp.exemplo.com" />
+              </label>
+              <label>
+                <span>SMTP port</span>
+                <input name="smtp_port" type="number" min="1" max="65535" value="587" />
+              </label>
+              <label>
+                <span>SMTP username</span>
+                <input name="smtp_username" type="text" placeholder="validacao@xpto.com" />
+              </label>
+              <label>
+                <span>SMTP password</span>
+                <input name="smtp_password" type="password" placeholder="email-secret" />
+              </label>
+              <label class="checkbox-row">
+                <input name="smtp_use_tls" type="checkbox" checked />
+                <span>Usar TLS</span>
+              </label>
+              <label>
+                <span>From address</span>
+                <input name="from_address" type="email" placeholder="validacao@xpto.com" />
+              </label>
+              <label>
+                <span>From name</span>
+                <input name="from_name" type="text" value="XPTO Validacao" />
+              </label>
+              <div class="actions compact-actions">
+                <button type="submit" class="primary">Salvar e-mail</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="module-card">
+            <h3>Token da API</h3>
+            <form id="token-form" class="module-form">
+              <label>
+                <span>Nome do token</span>
+                <input name="name" type="text" value="erp_producao" required />
+              </label>
+              <label>
+                <span>Expira em</span>
+                <input name="expires_at" type="datetime-local" />
+              </label>
+              <div class="actions compact-actions">
+                <button type="submit" class="primary">Gerar token</button>
+              </div>
+            </form>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Operacao do lote</h2>
+          <p>
+            Use este modulo para montar um lote de exemplo, enviar a API publica e consultar o resultado.
+          </p>
+        </div>
+
+        <form id="batch-form" class="batch-form">
+          <div class="module-grid">
+            <label>
+              <span>Batch ID</span>
+              <input name="batch_id" type="text" value="erp_lote_20260325_001" required />
+            </label>
+
+            <label>
+              <span>Source</span>
+              <select name="source">
+                <option value="integracao_externa" selected>integracao_externa</option>
+                <option value="web">web</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="full-width">
+            <span>Records (JSON array)</span>
+            <textarea id="batch_records_json" rows="14">[
+  {
+    "external_id": "1",
+    "client_name": "Fornecedor Alfa LTDA",
+    "cnpj": "11.222.333/0001-81",
+    "phone": "5519994110571",
+    "email": "contato@fornecedoralfa.com.br"
+  },
+  {
+    "external_id": "2",
+    "client_name": "Fornecedor Beta LTDA",
+    "cnpj": "22.333.444/0001-55",
+    "phone": "5511999990001",
+    "email": null
+  }
+]</textarea>
+          </label>
+
+          <div class="actions">
+            <button type="button" id="load-batch-sample" class="ghost">Carregar exemplo</button>
+            <button type="submit" class="primary">Enviar lote</button>
+            <button type="button" id="fetch-batch" class="secondary">Consultar lote</button>
+            <button type="button" id="dispatch-batch" class="secondary">Disparar manualmente</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel output-panel">
+          <div class="panel-header">
+            <h2>Ultima requisicao</h2>
+          </div>
+          <pre id="last-request-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel output-panel">
+          <div class="panel-header">
+            <h2>Ultima response</h2>
+          </div>
+          <pre id="last-response-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel output-panel">
+          <div class="panel-header">
+            <h2>Snapshot da conta</h2>
+          </div>
+          <pre id="account-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel output-panel">
+          <div class="panel-header">
+            <h2>Snapshot do lote</h2>
+          </div>
+          <pre id="batch-preview" class="json-block">{}</pre>
+        </article>
+
+        <article class="panel output-panel full-span">
+          <div class="panel-header">
+            <h2>Log da interface</h2>
+            <p>Historico das chamadas feitas por esta tela.</p>
+          </div>
+          <pre id="event-log-preview" class="json-block log-block">[]</pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="/static/platform_api_ui.js"></script>
+  </body>
+</html>

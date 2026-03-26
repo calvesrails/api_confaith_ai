@@ -1,4 +1,5 @@
 from .statuses import (
+    BatchStatus,
     BusinessStatus,
     CallResult,
     CallStatus,
@@ -8,6 +9,7 @@ from .statuses import (
 )
 
 __all__ = [
+    "BatchStatus",
     "BusinessStatus",
     "CallResult",
     "CallStatus",

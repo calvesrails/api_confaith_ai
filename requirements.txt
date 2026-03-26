@@ -9,3 +9,5 @@ alembic
 pytest
 pytest-asyncio
 python-dotenv
+websockets
+openpyxl
